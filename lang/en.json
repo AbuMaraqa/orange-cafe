@@ -1,0 +1,11 @@
+{
+    "Order created successfully": "Order created successfully",
+    "Order confirmed": "Order confirmed",
+    "Order cancelled": "Order cancelled",
+    "Payment completed": "Payment completed",
+    "Product unavailable": "Product unavailable",
+    "Invalid QR code": "Invalid QR code",
+    "Table is unavailable": "Table is unavailable",
+    "Something went wrong": "Something went wrong",
+    "Coming soon": "Coming soon"
+}

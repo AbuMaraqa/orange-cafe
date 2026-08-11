@@ -1,0 +1,11 @@
+{
+    "Order created successfully": "تم إنشاء الطلب بنجاح",
+    "Order confirmed": "تم تأكيد الطلب",
+    "Order cancelled": "تم إلغاء الطلب",
+    "Payment completed": "تمت عملية الدفع",
+    "Product unavailable": "المنتج غير متوفر",
+    "Invalid QR code": "رمز QR غير صالح",
+    "Table is unavailable": "الطاولة غير متاحة",
+    "Something went wrong": "حدث خطأ ما",
+    "Coming soon": "قريباً"
+}

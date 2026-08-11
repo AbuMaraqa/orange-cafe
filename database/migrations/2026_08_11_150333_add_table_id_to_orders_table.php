@@ -1,0 +1,34 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            // Links a dine-in order to the floor plan. `table_number` (the
+            // free-text label captured at checkout) is kept as-is for
+            // takeaway/no-floor-plan orders and as a display fallback.
+            $table->foreignId('table_id')->nullable()->after('id')
+                ->constrained('restaurant_tables')->nullOnDelete();
+            $table->unsignedInteger('guest_count')->nullable()->after('table_id');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table->dropConstrainedForeignId('table_id');
+            $table->dropColumn('guest_count');
+        });
+    }
+};
