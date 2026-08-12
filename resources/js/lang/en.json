@@ -20,14 +20,18 @@
         "name": "Name",
         "description": "Description",
         "price": "Price",
+        "time": "Time",
         "category": "Category",
         "loading": "Loading...",
         "no_results": "No data to display",
-        "close": "Close"
+        "close": "Close",
+        "collapse_sidebar": "Collapse sidebar",
+        "expand_sidebar": "Expand sidebar"
     },
     "nav": {
         "dashboard": "Dashboard",
         "languages": "Languages",
+        "menus": "Menus",
         "categories": "Categories",
         "products": "Products",
         "waiter": "Waiter",
@@ -40,6 +44,8 @@
         "group_floor": "Front of House",
         "group_catalog": "Catalog",
         "group_system": "System",
+        "orders": "Daily Orders",
+        "accounting": "Accounting",
         "tables": "Tables",
         "modifier_groups": "Modifier Groups",
         "tags": "Tags",
@@ -87,7 +93,8 @@
     },
     "dashboard": {
         "welcome_title": "Welcome",
-        "welcome_body": "You're logged in!"
+        "welcome_body": "You're logged in!",
+        "quick_access": "Quick Access"
     },
     "admin": {
         "languages": {
@@ -120,6 +127,8 @@
             "create_category": "Create Category",
             "edit_category": "Edit Category",
             "slug": "Slug",
+            "menu": "Menu",
+            "menu_locked_hint": "The menu can't be changed after creation. Delete and recreate this section under a different menu instead.",
             "parent": "Parent Category",
             "no_parent": "None (top-level category)",
             "station": "Kitchen Station",
@@ -158,9 +167,59 @@
             "image": "Photo",
             "price_placeholder": "Price (in cents)",
             "category": "Category",
+            "menus_in": "Appears in",
+            "menus_hint": "Which menus/sections include this product. Add or remove it from the Menu Builder — a product can belong to several menus at different prices.",
             "station_placeholder": "Leave blank to use the category's station",
             "station_hint": "Overrides the category's default kitchen printer station for this product only.",
             "missing_translations": "Missing translations"
+        },
+        "menus": {
+            "title": "Menus",
+            "add_menu": "Add Menu",
+            "create_menu": "Create Menu",
+            "edit_menu": "Edit Menu",
+            "publish_status": "Publish Status",
+            "sections_count": "Sections",
+            "items": "items",
+            "builder": "Builder",
+            "builder_hint": "Drag sections and products to reorder them. Prices are per-menu overrides — leave blank to use the product's default price.",
+            "edit_details": "Edit menu details",
+            "schedule": "Schedule",
+            "starts_at": "Starts on",
+            "ends_at": "Ends on",
+            "start_time": "Start time",
+            "end_time": "End time",
+            "days_of_week": "Active days",
+            "days_of_week_hint": "Leave all unselected to show on every day.",
+            "days": {
+                "sun": "Sun",
+                "mon": "Mon",
+                "tue": "Tue",
+                "wed": "Wed",
+                "thu": "Thu",
+                "fri": "Fri",
+                "sat": "Sat"
+            },
+            "remove_section": "Remove section",
+            "no_items": "No products in this section yet.",
+            "pick_product": "Pick a product to add…",
+            "price_override": "Price override",
+            "new_section_placeholder": "New section name",
+            "add_section": "Add section",
+            "featured": "Featured"
+        },
+        "accounting": {
+            "title": "Accounting",
+            "collected": "Collected",
+            "outstanding": "Outstanding",
+            "rounding": "Rounding/Discount",
+            "received": "received",
+            "by_waiter": "By waiter",
+            "by_cashier": "By cashier",
+            "nothing_collected": "Nothing collected yet.",
+            "self_service": "Self-service (QR)",
+            "taken_by": "Taken by",
+            "collected_by": "Collected by"
         }
     },
     "printers": {
@@ -197,14 +256,35 @@
     "staff": {
         "no_orders": "No active orders right now.",
         "mark_paid": "Mark Paid",
+        "invoice": "Invoice",
         "just_now": "just now",
-        "minutes_ago": "{minutes} min ago"
+        "minutes_ago": "{minutes} min ago",
+        "orders_count": "{count} orders",
+        "collected": "collected",
+        "amount_received": "Amount received",
+        "discount": "Discount/rounding",
+        "change_due": "Change due",
+        "confirm_payment": "Confirm"
     },
     "waiter": {
-        "title": "Orders"
+        "title": "Orders",
+        "new_order": "New Order",
+        "call_from_table": "Table {table} is asking for a waiter",
+        "call_generic": "A customer is asking for a waiter",
+        "acknowledge": "On my way",
+        "add_items_to": "Add items — Table {table}",
+        "add_to_order": "Add to order",
+        "start_order": "Start order",
+        "add_items": "Add items",
+        "table_details": "Table details",
+        "empty_table": "This table is free.",
+        "other_orders": "Other orders",
+        "search_table": "Search for a table…",
+        "no_tables_found": "No tables match your search."
     },
     "cashier": {
-        "title": "Orders & Payments"
+        "title": "Orders & Payments",
+        "outstanding": "Outstanding"
     },
     "kitchen": {
         "title": "Kitchen Tickets"
@@ -228,8 +308,13 @@
         "notes_placeholder": "e.g. no onions",
         "add_to_cart": "Add",
         "customizable": "customizable",
+        "featured": "Chef's pick",
         "back_to_menu": "Back to menu",
-        "order_placed": "Order placed!"
+        "order_placed": "Order placed!",
+        "scan_qr_required": "Table not detected. Please scan the QR code on your table to order.",
+        "call_waiter": "Call Waiter",
+        "waiter_on_the_way": "A waiter is on the way",
+        "waiter_called": "A waiter has been notified."
     },
     "orders": {
         "statuses": {

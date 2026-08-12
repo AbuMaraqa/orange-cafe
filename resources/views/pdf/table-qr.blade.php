@@ -3,26 +3,32 @@
 <head>
     <meta charset="utf-8">
     <style>
-        body { font-family: sans-serif; text-align: center; color: #1f2937; }
-        .card { margin-top: 60px; }
-        .brand-name { font-size: 22px; font-weight: bold; margin-bottom: 4px; }
-        .tagline { color: #6b7280; font-size: 12px; margin-bottom: 24px; }
-        .qr { margin: 0 auto; }
-        .table-label { font-size: 28px; font-weight: bold; margin-top: 20px; }
-        .instruction { color: #6b7280; font-size: 13px; margin-top: 6px; }
+        {{-- No font-family here on purpose: PdfService::make() sets the
+             document's default font (brand font or mPDF's auto per-script
+             selection) via SetDefaultFont()/autoLangToFont, and a CSS
+             generic-family value here would silently override that. --}}
+        body { color: #1f2937; }
+        {{-- mPDF's table engine stacks rows reliably where block/inline
+             flow (divs next to an <img>) does not — the whole card is a
+             1-column table so the QR image can never overlap the text. --}}
+        .card { width: 100%; text-align: center; margin-top: 60px; }
+        .card td { border: none; padding: 0; }
+        .brand-name { font-size: 22px; font-weight: bold; padding-bottom: 4px; }
+        .tagline { color: #6b7280; font-size: 12px; padding-bottom: 24px; }
+        .qr-cell { padding-bottom: 20px; }
+        .table-label { font-size: 28px; font-weight: bold; }
+        .instruction { color: #6b7280; font-size: 13px; padding-top: 6px; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <div class="brand-name">{{ $branding->name }}</div>
+    <table class="card">
+        <tr><td class="brand-name">{{ $branding->name }}</td></tr>
         @if ($branding->tagline)
-            <div class="tagline">{{ $branding->tagline }}</div>
+            <tr><td class="tagline">{{ $branding->tagline }}</td></tr>
         @endif
-
-        <img class="qr" src="data:image/png;base64,{{ $qrCode }}" width="260" height="260">
-
-        <div class="table-label">{{ $labels['table'] }} {{ $table->label }}</div>
-        <div class="instruction">{{ $labels['scan_instruction'] }}</div>
-    </div>
+        <tr><td class="qr-cell"><img src="data:image/png;base64,{{ $qrCode }}" width="260" height="260"></td></tr>
+        <tr><td class="table-label">{{ $labels['table'] }} {{ $table->label }}</td></tr>
+        <tr><td class="instruction">{{ $labels['scan_instruction'] }}</td></tr>
+    </table>
 </body>
 </html>

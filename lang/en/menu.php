@@ -7,4 +7,5 @@ return [
     'modifier_group_min' => 'Please choose at least :min option(s) for ":group".',
     'modifier_group_max' => 'You can choose at most :max option(s) for ":group".',
     'order_placed' => 'Your order has been placed!',
+    'waiter_called' => 'A waiter has been notified.',
 ];

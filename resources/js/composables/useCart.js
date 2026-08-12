@@ -28,24 +28,41 @@ watch(
     { deep: true },
 );
 
-function lineKey(productId, modifierIds) {
-    return `${productId}:${[...modifierIds].sort((a, b) => a - b).join(',')}`;
+// Same product + same selected modifiers = the same dedup group, so adding
+// it again bumps the quantity instead of creating a second line. `id` is a
+// separate, always-unique identifier for a specific line (used by
+// updateQuantity/remove) — lines with notes never merge, so two lines can
+// share a dedupKey while having different ids.
+function dedupKey(menuItemId, modifierIds) {
+    return `${menuItemId}:${[...modifierIds].sort((a, b) => a - b).join(',')}`;
+}
+
+let idCounter = 0;
+function uniqueId() {
+    idCounter += 1;
+
+    return `line-${Date.now()}-${idCounter}`;
 }
 
 export function useCart() {
     function add(product, selectedModifiers, quantity = 1, notes = '') {
         const modifierIds = selectedModifiers.map((m) => m.id);
-        const key = lineKey(product.id, modifierIds);
-        const existing = lines.find((line) => line.key === key && !notes);
+        const dedup = dedupKey(product.menu_item_id, modifierIds);
 
-        if (existing && !notes) {
-            existing.quantity += quantity;
-            return;
+        if (!notes) {
+            const existing = lines.find((line) => line.dedupKey === dedup && !line.notes);
+
+            if (existing) {
+                existing.quantity += quantity;
+                return;
+            }
         }
 
         lines.push({
-            key: `${key}:${Date.now()}`,
+            id: uniqueId(),
+            dedupKey: dedup,
             product_id: product.id,
+            menu_item_id: product.menu_item_id,
             name: product.name,
             image_url: product.image_url,
             unit_price_cents: product.price_cents + selectedModifiers.reduce((sum, m) => sum + m.price_cents, 0),
@@ -55,20 +72,20 @@ export function useCart() {
         });
     }
 
-    function updateQuantity(key, quantity) {
-        const line = lines.find((l) => l.key === key);
+    function updateQuantity(id, quantity) {
+        const line = lines.find((l) => l.id === id);
         if (!line) return;
 
         if (quantity <= 0) {
-            remove(key);
+            remove(id);
             return;
         }
 
         line.quantity = quantity;
     }
 
-    function remove(key) {
-        const index = lines.findIndex((l) => l.key === key);
+    function remove(id) {
+        const index = lines.findIndex((l) => l.id === id);
         if (index !== -1) lines.splice(index, 1);
     }
 
@@ -81,7 +98,7 @@ export function useCart() {
 
     function toOrderPayload() {
         return lines.map((line) => ({
-            product_id: line.product_id,
+            menu_item_id: line.menu_item_id,
             quantity: line.quantity,
             notes: line.notes || null,
             modifier_ids: line.modifiers.map((m) => m.id),

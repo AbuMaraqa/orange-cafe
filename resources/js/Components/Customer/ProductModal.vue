@@ -94,16 +94,28 @@ function confirm() {
 <template>
     <div class="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/50 sm:items-center" @click.self="emit('close')">
         <div class="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white sm:rounded-2xl dark:bg-gray-900">
-            <div v-if="product.image_url" class="h-40 w-full overflow-hidden">
+            <div v-if="product.image_url" class="h-52 w-full overflow-hidden">
                 <img :src="product.image_url" :alt="product.name" class="h-full w-full object-cover" />
             </div>
+            <div v-else class="flex h-24 w-full items-center justify-center bg-gray-100 text-4xl text-gray-300 dark:bg-gray-800 dark:text-gray-700">🍽</div>
 
             <div class="p-5">
                 <div class="flex items-start justify-between gap-3">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ product.name }}</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                        <span v-if="product.is_featured" class="me-1 text-amber-500">✦</span>{{ product.name }}
+                    </h3>
                     <button type="button" class="shrink-0 text-gray-400 hover:text-gray-600" @click="emit('close')">✕</button>
                 </div>
+                <p class="mt-1 font-semibold" style="color: var(--brand-primary)">{{ formatPrice(product.price_cents) }}</p>
                 <p v-if="product.description" class="mt-1 text-sm text-gray-500">{{ product.description }}</p>
+
+                <div v-if="product.tags.length" class="mt-2 flex flex-wrap gap-2">
+                    <span
+                        v-for="tag in product.tags"
+                        :key="tag.id"
+                        class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                    >{{ tag.icon }} {{ tag.name }}</span>
+                </div>
 
                 <div v-for="group in product.modifier_groups" :key="group.id" class="mt-5">
                     <div class="mb-2 flex items-center justify-between">

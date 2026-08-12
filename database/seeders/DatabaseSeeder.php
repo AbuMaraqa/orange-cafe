@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             RestaurantSettingsSeeder::class,
             CatalogSeeder::class,
+            ImportedDishesSeeder::class,
             RestaurantTableSeeder::class,
             PrinterSeeder::class,
         ]);

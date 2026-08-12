@@ -14,10 +14,6 @@ const props = defineProps({
         type: Array,
         required: true,
     },
-    categories: {
-        type: Array,
-        required: true,
-    },
     modifierGroups: {
         type: Array,
         default: () => [],
@@ -39,7 +35,6 @@ const emptyTranslations = Object.fromEntries(
 );
 
 const form = useForm({
-    category_id: props.product?.category_id ?? props.categories[0]?.id ?? null,
     slug: props.product?.slug ?? '',
     station: props.product?.station ?? '',
     image: null,
@@ -88,18 +83,17 @@ function submit() {
                     <InputError class="mt-2" :message="form.errors.image" />
                 </div>
 
-                <div>
-                    <InputLabel for="category_id" :value="$t('admin.products.category')" />
-                    <select
-                        id="category_id"
-                        v-model.number="form.category_id"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                    >
-                        <option v-for="category in categories" :key="category.id" :value="category.id">
-                            {{ category.name }}
-                        </option>
-                    </select>
-                    <InputError class="mt-2" :message="form.errors.category_id" />
+                <div v-if="isEdit">
+                    <InputLabel :value="$t('admin.products.menus_in')" />
+                    <div class="mt-1 flex flex-wrap gap-1.5">
+                        <span
+                            v-for="menuName in product.menus"
+                            :key="menuName"
+                            class="inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                        >{{ menuName }}</span>
+                        <span v-if="product.menus.length === 0" class="text-sm text-gray-400">—</span>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.menus_hint') }}</p>
                 </div>
 
                 <div>

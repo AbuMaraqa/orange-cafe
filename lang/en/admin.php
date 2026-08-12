@@ -55,4 +55,15 @@ return [
         'deleted' => 'Table deleted successfully.',
     ],
 
+    'menus' => [
+        'created' => 'Menu created successfully.',
+        'updated' => 'Menu updated successfully.',
+        'deleted' => 'Menu deleted successfully.',
+        'section_created' => 'Section added successfully.',
+        'section_deleted' => 'Section removed successfully.',
+        'item_added' => 'Product added to the menu.',
+        'item_updated' => 'Menu item updated.',
+        'item_removed' => 'Product removed from the menu.',
+    ],
+
 ];

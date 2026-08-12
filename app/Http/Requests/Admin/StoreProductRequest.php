@@ -18,7 +18,9 @@ class StoreProductRequest extends FormRequest
         $default = $registry->default()?->code;
 
         $rules = [
-            'category_id' => ['required', 'integer', 'exists:categories,id'],
+            // No category/menu here on purpose — a product is standalone;
+            // it's attached to sections/menus (possibly several, each with
+            // its own price) from the Menu Builder instead.
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', 'unique:products,slug'],
             'station' => ['nullable', 'string', 'max:100'],
             'image' => ['nullable', 'image', 'max:2048'],

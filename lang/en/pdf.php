@@ -13,6 +13,9 @@ return [
     'payment_status' => 'Payment Status',
     'paid' => 'Paid',
     'unpaid' => 'Unpaid',
+    'amount_paid' => 'Amount Paid',
+    'change_due' => 'Change Due',
+    'discount' => 'Discount',
     'thank_you' => 'Thank you for your visit!',
     'scan_instruction' => 'Scan to view the menu and order',
 ];

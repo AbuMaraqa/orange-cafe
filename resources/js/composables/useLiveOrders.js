@@ -1,13 +1,19 @@
-import { onMounted, onUnmounted, reactive } from 'vue';
+import { onMounted, onUnmounted, reactive, watch } from 'vue';
 
 /**
  * Keeps a staff dashboard's order list in sync in real time over the
  * `orders` private Reverb channel — no polling. `order.placed` inserts a
  * full order; `order.status-updated` merges a partial update (status,
- * paid_at) into the matching order already in the list.
+ * paid_at, items, total_cents) into the matching order already in the
+ * list. Also re-synced from fresh Inertia props (existing entries patched
+ * in place, not replaced) so the acting user's own actions — broadcast
+ * with `toOthers()` and therefore never echoed back to their own socket —
+ * still show up once the page's own response comes back.
+ *
+ * @param {() => Array} getOrders reactive getter, e.g. `() => props.orders`
  */
-export function useLiveOrders(initialOrders) {
-    const orders = reactive(initialOrders.map((o) => ({ ...o })));
+export function useLiveOrders(getOrders) {
+    const orders = reactive(getOrders().map((o) => ({ ...o })));
 
     function upsert(data, isNew) {
         const index = orders.findIndex((o) => o.id === data.id);
@@ -24,6 +30,13 @@ export function useLiveOrders(initialOrders) {
             orders.unshift(patch);
         }
     }
+
+    watch(getOrders, (fresh) => {
+        fresh.forEach((incoming) => upsert(incoming, true));
+        for (let i = orders.length - 1; i >= 0; i -= 1) {
+            if (!fresh.some((o) => o.id === orders[i].id)) orders.splice(i, 1);
+        }
+    });
 
     let channel = null;
 

@@ -18,6 +18,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    menuOptions: {
+        type: Array,
+        default: () => [],
+    },
     category: {
         type: Object,
         default: null,
@@ -31,6 +35,7 @@ const emptyTranslations = Object.fromEntries(
 );
 
 const form = useForm({
+    menu_id: props.category?.menu_id ?? props.menuOptions[0]?.id ?? null,
     parent_id: props.category?.parent_id ?? null,
     slug: props.category?.slug ?? '',
     station: props.category?.station ?? '',
@@ -58,6 +63,25 @@ function submit() {
 
         <div class="mx-auto max-w-2xl overflow-hidden rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
             <form @submit.prevent="submit" class="space-y-6">
+                <div v-if="!form.parent_id">
+                    <InputLabel for="menu_id" :value="$t('admin.categories.menu')" />
+                    <select
+                        v-if="!isEdit"
+                        id="menu_id"
+                        v-model.number="form.menu_id"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                    >
+                        <option v-for="option in menuOptions" :key="option.id" :value="option.id">
+                            {{ option.name }}
+                        </option>
+                    </select>
+                    <div v-else class="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+                        {{ menuOptions.find((m) => m.id === form.menu_id)?.name }}
+                        <p class="mt-0.5 text-xs text-gray-400">{{ $t('admin.categories.menu_locked_hint') }}</p>
+                    </div>
+                    <InputError class="mt-2" :message="form.errors.menu_id" />
+                </div>
+
                 <div v-if="parentOptions.length > 0">
                     <InputLabel for="parent_id" :value="$t('admin.categories.parent')" />
                     <select

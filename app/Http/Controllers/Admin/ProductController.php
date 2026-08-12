@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreProductRequest;
 use App\Http\Requests\Admin\UpdateProductRequest;
-use App\Models\Category;
 use App\Models\ModifierGroup;
 use App\Models\Product;
 use App\Models\Tag;
@@ -24,7 +23,7 @@ class ProductController extends Controller
     public function index(): Response
     {
         $products = Product::query()
-            ->with(['translations', 'category.translations', 'tags'])
+            ->with(['translations', 'tags', 'menus.translations'])
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -39,7 +38,6 @@ class ProductController extends Controller
     {
         return Inertia::render('Admin/Products/Form', [
             'languages' => $this->registry->active()->values(),
-            'categories' => $this->categoryOptions(),
             'modifierGroups' => $this->modifierGroupOptions(),
             'tags' => $this->tagOptions(),
             'product' => null,
@@ -68,11 +66,10 @@ class ProductController extends Controller
 
     public function edit(Product $product): Response
     {
-        $product->load('translations', 'modifierGroups', 'tags');
+        $product->load('translations', 'modifierGroups', 'tags', 'menus.translations');
 
         return Inertia::render('Admin/Products/Form', [
             'languages' => $this->registry->active()->values(),
-            'categories' => $this->categoryOptions(),
             'modifierGroups' => $this->modifierGroupOptions(),
             'tags' => $this->tagOptions(),
             'product' => $this->present($product, includeTranslations: true),
@@ -113,26 +110,6 @@ class ProductController extends Controller
         return to_route('admin.products.index')->with('success', __('admin.products.deleted'));
     }
 
-    protected function categoryOptions()
-    {
-        $defaultLocale = $this->registry->default()?->code;
-
-        return Category::query()
-            ->where(function ($query) {
-                // Only "leaf" categories: subcategories, or top-level
-                // categories that have no subcategories of their own —
-                // products never attach directly to a category that has a
-                // submenu.
-                $query->whereNotNull('parent_id')->orWhereDoesntHave('children');
-            })
-            ->orderBy('sort_order')
-            ->get()
-            ->map(fn (Category $category) => [
-                'id' => $category->id,
-                'name' => $category->translate($defaultLocale)?->name ?? $category->slug,
-            ]);
-    }
-
     protected function modifierGroupOptions()
     {
         $defaultLocale = $this->registry->default()?->code;
@@ -163,8 +140,6 @@ class ProductController extends Controller
         $payload = [
             'id' => $product->id,
             'slug' => $product->slug,
-            'category_id' => $product->category_id,
-            'category_name' => $product->category?->translate($defaultLocale)?->name,
             'station' => $product->station,
             'image_url' => $product->image_url,
             'price_cents' => $product->price_cents,
@@ -172,6 +147,10 @@ class ProductController extends Controller
             'sort_order' => $product->sort_order,
             'name' => $product->translate($defaultLocale)?->name ?? $product->slug,
             'tags' => $product->tags->map(fn (Tag $tag) => $tag->translate($defaultLocale)?->name ?? $tag->slug),
+            // Read-only, informational: where this product currently
+            // appears. Attaching/detaching happens in the Menu Builder,
+            // not here — a product can be in several menus at once.
+            'menus' => $product->menus->unique('id')->map(fn ($menu) => $menu->translate($defaultLocale)?->name ?? $menu->slug)->values(),
             'missing_locales' => array_values(array_diff($activeCodes, $translatedCodes)),
         ];
 

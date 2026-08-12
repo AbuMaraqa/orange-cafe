@@ -45,6 +45,7 @@ function languageName(code, languages) {
                 <thead class="bg-gray-50 dark:bg-gray-900/60">
                     <tr class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                         <th class="px-4 py-3 text-start">{{ $t('common.name') }}</th>
+                        <th class="px-4 py-3 text-start">{{ $t('admin.categories.menu') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.categories.slug') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('common.status') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.categories.missing_translations') }}</th>
@@ -56,6 +57,9 @@ function languageName(code, languages) {
                         <tr>
                             <td class="whitespace-nowrap px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
                                 {{ category.name }}
+                            </td>
+                            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                {{ category.menu_name }}
                             </td>
                             <td class="whitespace-nowrap px-4 py-3 font-mono text-sm text-gray-600 dark:text-gray-400">
                                 {{ category.slug }}

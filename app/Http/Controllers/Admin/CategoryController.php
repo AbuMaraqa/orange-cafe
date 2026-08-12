@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreCategoryRequest;
 use App\Http\Requests\Admin\UpdateCategoryRequest;
 use App\Models\Category;
+use App\Models\Menu;
 use App\Services\LanguageRegistry;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -20,8 +21,9 @@ class CategoryController extends Controller
     public function index(): Response
     {
         $categories = Category::query()
-            ->with('translations', 'children.translations')
+            ->with('translations', 'children.translations', 'menu.translations')
             ->whereNull('parent_id')
+            ->orderBy('menu_id')
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -29,6 +31,7 @@ class CategoryController extends Controller
         return Inertia::render('Admin/Categories/Index', [
             'categories' => $categories->map(fn (Category $category) => [
                 ...$this->present($category),
+                'menu_name' => $category->menu?->name,
                 'children' => $category->children->map(fn (Category $child) => $this->present($child)),
             ]),
             'languages' => $this->registry->active()->values(),
@@ -39,6 +42,7 @@ class CategoryController extends Controller
     {
         return Inertia::render('Admin/Categories/Form', [
             'languages' => $this->registry->active()->values(),
+            'menuOptions' => $this->menuOptions(),
             'parentOptions' => $this->parentOptions(),
             'category' => null,
         ]);
@@ -49,6 +53,12 @@ class CategoryController extends Controller
         $data = $request->validated();
         $translations = $data['translations'];
         unset($data['translations']);
+
+        if (! empty($data['parent_id'])) {
+            // Subcategories always inherit their parent's menu — never
+            // trust a client-submitted menu_id for them.
+            $data['menu_id'] = Category::findOrFail($data['parent_id'])->menu_id;
+        }
 
         Category::create([...$data, ...$translations]);
 
@@ -61,7 +71,8 @@ class CategoryController extends Controller
 
         return Inertia::render('Admin/Categories/Form', [
             'languages' => $this->registry->active()->values(),
-            'parentOptions' => $this->parentOptions($category),
+            'menuOptions' => $this->menuOptions(),
+            'parentOptions' => $this->parentOptions($category, forMenuId: $category->menu_id),
             'category' => $this->present($category, includeTranslations: true),
         ]);
     }
@@ -71,6 +82,10 @@ class CategoryController extends Controller
         $data = $request->validated();
         $translations = $data['translations'];
         unset($data['translations']);
+
+        if (! empty($data['parent_id'])) {
+            $data['menu_id'] = Category::findOrFail($data['parent_id'])->menu_id;
+        }
 
         $category->update([...$data, ...$translations]);
 
@@ -84,16 +99,29 @@ class CategoryController extends Controller
         return to_route('admin.categories.index')->with('success', __('admin.categories.deleted'));
     }
 
+    protected function menuOptions()
+    {
+        $defaultLocale = $this->registry->default()?->code;
+
+        return Menu::query()->orderBy('sort_order')->get()->map(fn (Menu $menu) => [
+            'id' => $menu->id,
+            'name' => $menu->translate($defaultLocale)?->name ?? $menu->slug,
+        ]);
+    }
+
     /**
      * Top-level categories only, excluding the category being edited —
      * the only valid values for `parent_id` (menu stays exactly 2 levels).
+     * Scoped to a menu when known, since a subcategory must share its
+     * parent's menu.
      */
-    protected function parentOptions(?Category $excluding = null)
+    protected function parentOptions(?Category $excluding = null, ?int $forMenuId = null)
     {
         $defaultLocale = $this->registry->default()?->code;
 
         return Category::query()
             ->whereNull('parent_id')
+            ->when($forMenuId, fn ($query) => $query->where('menu_id', $forMenuId))
             ->when($excluding, fn ($query) => $query->whereKeyNot($excluding->id))
             ->orderBy('sort_order')
             ->get()
@@ -110,6 +138,7 @@ class CategoryController extends Controller
 
         $payload = [
             'id' => $category->id,
+            'menu_id' => $category->menu_id,
             'parent_id' => $category->parent_id,
             'slug' => $category->slug,
             'station' => $category->station,

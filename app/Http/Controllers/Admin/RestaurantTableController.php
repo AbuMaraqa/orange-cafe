@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Concerns\PresentsTables;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreRestaurantTableRequest;
 use App\Http\Requests\Admin\UpdateRestaurantTableRequest;
@@ -19,6 +20,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class RestaurantTableController extends Controller
 {
+    use PresentsTables;
+
     public function index(): Response
     {
         $tables = RestaurantTable::query()
@@ -26,7 +29,7 @@ class RestaurantTableController extends Controller
             ->get();
 
         return Inertia::render('Admin/Tables/Index', [
-            'tables' => $tables->map(fn (RestaurantTable $table) => $this->present($table)),
+            'tables' => $tables->map(fn (RestaurantTable $table) => $this->presentTable($table)),
         ]);
     }
 
@@ -118,35 +121,5 @@ class RestaurantTableController extends Controller
     protected function qrPng(string $data): string
     {
         return DNS2D::getBarcodePNG($data, 'QRCODE', 6, 6);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    protected function present(RestaurantTable $table): array
-    {
-        $activeOrder = $table->orders->first();
-
-        return [
-            'id' => $table->id,
-            'label' => $table->label,
-            'pos_x' => $table->pos_x,
-            'pos_y' => $table->pos_y,
-            'shape' => $table->shape,
-            'seats' => $table->seats,
-            'is_active' => $table->is_active,
-            'is_occupied' => $activeOrder !== null,
-            'active_order' => $activeOrder ? [
-                'id' => $activeOrder->id,
-                'reference' => $activeOrder->reference,
-                'status' => $activeOrder->status,
-                'status_color' => $activeOrder->statusColor(),
-                'guest_count' => $activeOrder->guest_count,
-                'total_cents' => $activeOrder->total_cents,
-                'is_paid' => $activeOrder->isPaid(),
-                'items_count' => $activeOrder->items->sum('quantity'),
-                'created_at' => $activeOrder->created_at->toIso8601String(),
-            ] : null,
-        ];
     }
 }

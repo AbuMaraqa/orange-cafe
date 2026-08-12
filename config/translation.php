@@ -15,6 +15,7 @@ return [
     |
     */
     'translatable_models' => [
+        \App\Models\Menu::class,
         \App\Models\Category::class,
         \App\Models\Product::class,
         \App\Models\ModifierGroup::class,

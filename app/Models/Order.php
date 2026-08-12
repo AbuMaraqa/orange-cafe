@@ -11,7 +11,7 @@ class Order extends Model
 {
     protected $fillable = [
         'table_id', 'guest_count', 'table_number', 'customer_name',
-        'status', 'locale', 'notes', 'total_cents', 'paid_at',
+        'status', 'locale', 'notes', 'total_cents', 'created_by', 'paid_at', 'paid_by', 'amount_paid_cents',
     ];
 
     protected function casts(): array
@@ -19,6 +19,7 @@ class Order extends Model
         return [
             'guest_count' => 'integer',
             'total_cents' => 'integer',
+            'amount_paid_cents' => 'integer',
             'paid_at' => 'datetime',
         ];
     }
@@ -49,9 +50,29 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function paidBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'paid_by');
+    }
+
     public function isPaid(): bool
     {
         return $this->paid_at !== null;
+    }
+
+    /**
+     * What was actually collected — may differ from total_cents when a
+     * cashier rounds down or discounts at the till. Falls back to
+     * total_cents for orders paid before this was tracked.
+     */
+    public function collectedCents(): int
+    {
+        return $this->amount_paid_cents ?? $this->total_cents;
     }
 
     public function isActive(): bool

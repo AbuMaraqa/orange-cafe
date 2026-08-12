@@ -20,14 +20,18 @@
         "name": "الاسم",
         "description": "الوصف",
         "price": "السعر",
+        "time": "الوقت",
         "category": "الفئة",
         "loading": "جارٍ التحميل...",
         "no_results": "لا توجد بيانات لعرضها",
-        "close": "إغلاق"
+        "close": "إغلاق",
+        "collapse_sidebar": "طي القائمة الجانبية",
+        "expand_sidebar": "توسيع القائمة الجانبية"
     },
     "nav": {
         "dashboard": "لوحة التحكم",
         "languages": "اللغات",
+        "menus": "القوائم",
         "categories": "الفئات",
         "products": "المنتجات",
         "waiter": "النادل",
@@ -40,6 +44,8 @@
         "group_floor": "صالة المطعم",
         "group_catalog": "الكتالوج",
         "group_system": "النظام",
+        "orders": "الطلبات اليومية",
+        "accounting": "المحاسبة",
         "tables": "الطاولات",
         "modifier_groups": "مجموعات الإضافات",
         "tags": "الوسوم",
@@ -87,7 +93,8 @@
     },
     "dashboard": {
         "welcome_title": "مرحباً بك",
-        "welcome_body": "لقد سجلت الدخول بنجاح."
+        "welcome_body": "لقد سجلت الدخول بنجاح.",
+        "quick_access": "الوصول السريع"
     },
     "admin": {
         "languages": {
@@ -120,6 +127,8 @@
             "create_category": "إنشاء فئة",
             "edit_category": "تعديل الفئة",
             "slug": "المعرف النصي",
+            "menu": "القائمة",
+            "menu_locked_hint": "لا يمكن تغيير القائمة بعد الإنشاء. احذف هذه الفئة وأعد إنشاءها ضمن قائمة أخرى بدلاً من ذلك.",
             "parent": "الفئة الرئيسية",
             "no_parent": "بدون (فئة رئيسية)",
             "station": "قسم المطبخ",
@@ -158,9 +167,59 @@
             "image": "الصورة",
             "price_placeholder": "السعر (بالقروش/السنت)",
             "category": "الفئة",
+            "menus_in": "يظهر ضمن",
+            "menus_hint": "القوائم/الأقسام التي يظهر بها هذا المنتج. أضفه أو احذفه من خلال منشئ القوائم — يمكن أن ينتمي المنتج لعدة قوائم بأسعار مختلفة.",
             "station_placeholder": "اتركه فارغاً لاستخدام قسم الفئة",
             "station_hint": "يتجاوز قسم الطباعة الافتراضي الخاص بالفئة لهذا المنتج فقط.",
             "missing_translations": "ترجمات ناقصة"
+        },
+        "menus": {
+            "title": "القوائم",
+            "add_menu": "إضافة قائمة",
+            "create_menu": "إنشاء قائمة",
+            "edit_menu": "تعديل القائمة",
+            "publish_status": "حالة النشر",
+            "sections_count": "الأقسام",
+            "items": "عنصر",
+            "builder": "منشئ القائمة",
+            "builder_hint": "اسحب الأقسام والمنتجات لإعادة ترتيبها. الأسعار هنا تخصيص لهذه القائمة فقط — اتركها فارغة لاستخدام السعر الافتراضي للمنتج.",
+            "edit_details": "تعديل تفاصيل القائمة",
+            "schedule": "الجدولة",
+            "starts_at": "تبدأ في",
+            "ends_at": "تنتهي في",
+            "start_time": "وقت البدء",
+            "end_time": "وقت الانتهاء",
+            "days_of_week": "الأيام النشطة",
+            "days_of_week_hint": "اتركها بدون تحديد لتظهر في كل الأيام.",
+            "days": {
+                "sun": "أحد",
+                "mon": "اثنين",
+                "tue": "ثلاثاء",
+                "wed": "أربعاء",
+                "thu": "خميس",
+                "fri": "جمعة",
+                "sat": "سبت"
+            },
+            "remove_section": "حذف القسم",
+            "no_items": "لا توجد منتجات في هذا القسم بعد.",
+            "pick_product": "اختر منتجاً لإضافته…",
+            "price_override": "سعر مخصص",
+            "new_section_placeholder": "اسم القسم الجديد",
+            "add_section": "إضافة قسم",
+            "featured": "مميز"
+        },
+        "accounting": {
+            "title": "المحاسبة",
+            "collected": "المحصّل",
+            "outstanding": "المتبقي",
+            "rounding": "التقريب/الخصم",
+            "received": "استُلم",
+            "by_waiter": "حسب النادل",
+            "by_cashier": "حسب الكاشير",
+            "nothing_collected": "لا يوجد تحصيل بعد.",
+            "self_service": "طلب ذاتي (QR)",
+            "taken_by": "سجّله",
+            "collected_by": "حصّله"
         }
     },
     "printers": {
@@ -197,14 +256,35 @@
     "staff": {
         "no_orders": "لا توجد طلبات نشطة حالياً.",
         "mark_paid": "تحديد كمدفوع",
+        "invoice": "الفاتورة",
         "just_now": "الآن",
-        "minutes_ago": "منذ {minutes} دقيقة"
+        "minutes_ago": "منذ {minutes} دقيقة",
+        "orders_count": "{count} طلب",
+        "collected": "محصّل",
+        "amount_received": "المبلغ المستلم",
+        "discount": "خصم/تقريب",
+        "change_due": "الباقي",
+        "confirm_payment": "تأكيد"
     },
     "waiter": {
-        "title": "الطلبات"
+        "title": "الطلبات",
+        "new_order": "طلب جديد",
+        "call_from_table": "الطاولة {table} تطلب النادل",
+        "call_generic": "أحد الزبائن يطلب النادل",
+        "acknowledge": "في الطريق",
+        "add_items_to": "إضافة أصناف — طاولة {table}",
+        "add_to_order": "إضافة إلى الطلب",
+        "start_order": "بدء طلب",
+        "add_items": "إضافة أصناف",
+        "table_details": "تفاصيل الطاولة",
+        "empty_table": "هذه الطاولة فارغة.",
+        "other_orders": "طلبات أخرى",
+        "search_table": "ابحث عن طاولة…",
+        "no_tables_found": "لا توجد طاولات مطابقة لبحثك."
     },
     "cashier": {
-        "title": "الطلبات والمدفوعات"
+        "title": "الطلبات والمدفوعات",
+        "outstanding": "المتبقي"
     },
     "kitchen": {
         "title": "تذاكر المطبخ"
@@ -228,8 +308,13 @@
         "notes_placeholder": "مثال: بدون بصل",
         "add_to_cart": "إضافة",
         "customizable": "قابل للتخصيص",
+        "featured": "طبق مميز",
         "back_to_menu": "الرجوع للقائمة",
-        "order_placed": "تم إرسال الطلب!"
+        "order_placed": "تم إرسال الطلب!",
+        "scan_qr_required": "لم يتم التعرف على الطاولة. الرجاء مسح رمز QR الموجود على طاولتك لإتمام الطلب.",
+        "call_waiter": "طلب النادل",
+        "waiter_on_the_way": "النادل في الطريق إليك",
+        "waiter_called": "تم إبلاغ النادل."
     },
     "orders": {
         "statuses": {

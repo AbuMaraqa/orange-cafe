@@ -20,6 +20,10 @@ class UpdateCategoryRequest extends FormRequest
         $default = $registry->default()?->code;
 
         $rules = [
+            // menu_id is intentionally not editable here — menu_items rows
+            // for this section's products denormalize menu_id too, and
+            // moving a section between menus would orphan them. Delete and
+            // recreate the section under the right menu instead.
             'parent_id' => ['nullable', 'integer', 'exists:categories,id,parent_id,NULL'],
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', Rule::unique('categories', 'slug')->ignore($this->route('category'))],
             'is_active' => ['sometimes', 'boolean'],

@@ -19,7 +19,6 @@ class UpdateProductRequest extends FormRequest
         $default = $registry->default()?->code;
 
         $rules = [
-            'category_id' => ['required', 'integer', 'exists:categories,id'],
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', Rule::unique('products', 'slug')->ignore($this->route('product'))],
             'station' => ['nullable', 'string', 'max:100'],
             'image' => ['nullable', 'image', 'max:2048'],

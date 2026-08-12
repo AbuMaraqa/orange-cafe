@@ -7,4 +7,5 @@ return [
     'modifier_group_min' => 'الرجاء اختيار :min خيار على الأقل لـ ":group".',
     'modifier_group_max' => 'يمكنك اختيار :max خيار كحد أقصى لـ ":group".',
     'order_placed' => 'تم إرسال طلبك بنجاح!',
+    'waiter_called' => 'تم إبلاغ النادل.',
 ];

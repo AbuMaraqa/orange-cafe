@@ -71,8 +71,15 @@ function formatPrice(cents) {
                                 </div>
                             </div>
                         </td>
-                        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                            {{ product.category_name }}
+                        <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                            <div class="flex flex-wrap gap-1">
+                                <span v-if="product.menus.length === 0" class="text-gray-400">—</span>
+                                <span
+                                    v-for="menuName in product.menus"
+                                    :key="menuName"
+                                    class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                                >{{ menuName }}</span>
+                            </div>
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-gray-600 dark:text-gray-400">
                             {{ formatPrice(product.price_cents) }}

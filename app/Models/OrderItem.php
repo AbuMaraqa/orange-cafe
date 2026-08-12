@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class OrderItem extends Model
 {
     protected $fillable = [
-        'product_id', 'product_name', 'station', 'unit_price_cents', 'quantity', 'subtotal_cents', 'notes',
+        'product_id', 'menu_item_id', 'product_name', 'station', 'unit_price_cents', 'quantity', 'subtotal_cents', 'notes',
     ];
 
     protected function casts(): array
@@ -29,6 +29,11 @@ class OrderItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function menuItem(): BelongsTo
+    {
+        return $this->belongsTo(MenuItem::class);
     }
 
     public function modifiers(): HasMany

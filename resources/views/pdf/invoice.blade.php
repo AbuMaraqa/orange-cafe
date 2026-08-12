@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <style>
-        body { font-family: sans-serif; font-size: 13px; color: #1f2937; }
+        body { font-size: 13px; color: #1f2937; }
         .header { width: 100%; margin-bottom: 16px; }
         .header td { vertical-align: top; }
         .brand-name { font-size: 20px; font-weight: bold; }
@@ -21,6 +21,10 @@
         .totals .grand { font-size: 15px; font-weight: bold; border-top: 1px solid #1f2937; padding-top: 8px; }
         .status-badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: bold; }
         .footer { margin-top: 30px; text-align: center; color: #9ca3af; font-size: 11px; }
+        /* The brand font (Tajawal/Almarai) doesn't include every currency
+           glyph (e.g. ₪) — fall back to mPDF's bundled DejaVu Sans, which
+           has broad Unicode coverage, just for that one character. */
+        .currency { font-family: dejavusanscondensed, sans-serif; }
     </style>
 </head>
 <body>
@@ -29,7 +33,13 @@
             <td style="width: 60%;">
                 <div class="brand-name">{{ $branding->name }}</div>
                 <div class="muted">{{ $branding->address }}</div>
-                <div class="muted">{{ $branding->phone }}</div>
+                @if ($branding->phone)
+                    {{-- U+200E (LRM) anchors the run as strongly LTR so the
+                         bidi algorithm doesn't reverse the digit/dash
+                         sequence inside an RTL document — a dir="ltr"
+                         attribute alone isn't enough for mPDF here. --}}
+                    <div class="muted">&#x200E;{{ $branding->phone }}</div>
+                @endif
             </td>
             <td style="width: 40%;" class="text-end">
                 <div class="muted">{{ $labels['invoice'] }}</div>
@@ -75,8 +85,8 @@
                         @endif
                     </td>
                     <td class="text-end">{{ $item->quantity }}</td>
-                    <td class="text-end">{{ $currencySymbol }}{{ number_format($item->unit_price_cents / 100, 2) }}</td>
-                    <td class="text-end">{{ $currencySymbol }}{{ number_format($item->subtotal_cents / 100, 2) }}</td>
+                    <td class="text-end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($item->unit_price_cents / 100, 2) }}</td>
+                    <td class="text-end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($item->subtotal_cents / 100, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
@@ -87,7 +97,7 @@
     <table class="totals" style="margin-left: auto;">
         <tr>
             <td class="label">{{ $labels['total'] }}</td>
-            <td class="text-end grand">{{ $currencySymbol }}{{ number_format($order->total_cents / 100, 2) }}</td>
+            <td class="text-end grand"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($order->total_cents / 100, 2) }}</td>
         </tr>
         <tr>
             <td class="label">{{ $labels['payment_status'] }}</td>
@@ -97,6 +107,16 @@
                 </span>
             </td>
         </tr>
+        @if ($order->isPaid() && $order->amount_paid_cents !== null && $order->amount_paid_cents !== $order->total_cents)
+            <tr>
+                <td class="label">{{ $labels['amount_paid'] }}</td>
+                <td class="text-end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($order->amount_paid_cents / 100, 2) }}</td>
+            </tr>
+            <tr>
+                <td class="label">{{ $order->amount_paid_cents > $order->total_cents ? $labels['change_due'] : $labels['discount'] }}</td>
+                <td class="text-end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format(abs($order->amount_paid_cents - $order->total_cents) / 100, 2) }}</td>
+            </tr>
+        @endif
     </table>
 
     <div class="footer">{{ $labels['thank_you'] }}</div>

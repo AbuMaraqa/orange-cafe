@@ -15,7 +15,7 @@ const props = defineProps({
 });
 
 const { t } = useI18n();
-const { orders } = useLiveOrders(props.orders);
+const { orders } = useLiveOrders(() => props.orders);
 
 // Kitchen only cares about tickets it still needs to act on.
 const kitchenOrders = computed(() =>
