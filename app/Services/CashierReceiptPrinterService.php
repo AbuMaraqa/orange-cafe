@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\OpenCashDrawer;
 use App\Jobs\PrintCashierReceipt;
 use App\Models\Order;
 use App\Models\Printer;
@@ -11,6 +12,8 @@ use App\Services\Printing\PrinterTransport;
 use App\Settings\RestaurantSettings;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Mike42\Escpos\PrintConnectors\DummyPrintConnector;
+use Mike42\Escpos\Printer as EscposPrinter;
 
 /**
  * Prints the customer invoice (same content/layout as the PDF a staff
@@ -64,6 +67,30 @@ class CashierReceiptPrinterService
         $order->loadMissing('items.modifiers', 'table');
 
         return $this->transport->send($printer, $this->buildReceipt($order));
+    }
+
+    /**
+     * Dispatches one drawer-open job per cashier printer, mirroring
+     * queuePrintJobs() — called from StaffOrderController::markPaid(), not
+     * from printing, so the drawer opens on payment whether or not a
+     * receipt happens to be printed for that order.
+     */
+    public function queueDrawerOpen(): void
+    {
+        Printer::query()->where('station', self::STATION)->where('is_active', true)
+            ->each(fn (Printer $printer) => OpenCashDrawer::dispatch($printer));
+    }
+
+    public function openDrawer(Printer $printer): bool
+    {
+        $connector = new DummyPrintConnector;
+        $escPrinter = new EscposPrinter($connector);
+        $escPrinter->initialize();
+        $escPrinter->pulse();
+        $bytes = $connector->getData();
+        $escPrinter->close();
+
+        return $this->transport->send($printer, $bytes);
     }
 
     protected function buildReceipt(Order $order): string

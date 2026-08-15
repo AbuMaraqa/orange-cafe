@@ -35,7 +35,7 @@ class StaffOrderController extends Controller
         return back()->with('success', __('orders.status_updated'));
     }
 
-    public function markPaid(Request $request, Order $order): RedirectResponse
+    public function markPaid(Request $request, Order $order, CashierReceiptPrinterService $cashierPrinter): RedirectResponse
     {
         $data = $request->validate([
             // Optional — a cashier can round down or discount at the till
@@ -49,6 +49,8 @@ class StaffOrderController extends Controller
             'paid_by' => $request->user()->id,
             'amount_paid_cents' => $data['amount_paid_cents'] ?? $order->total_cents,
         ]);
+
+        $cashierPrinter->queueDrawerOpen();
 
         $this->safeBroadcast(new OrderStatusUpdated($order), toOthers: true);
 
