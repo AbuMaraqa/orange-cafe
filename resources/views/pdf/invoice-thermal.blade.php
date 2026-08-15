@@ -110,6 +110,6 @@
 
     <div class="divider"></div>
 
-    <div class="footer center">{{ $labels['thank_you'] }}</div>
+    <div class="footer center">{!! nl2br(e($branding->receipt_footer_text ?: $labels['thank_you'])) !!}</div>
 </body>
 </html>

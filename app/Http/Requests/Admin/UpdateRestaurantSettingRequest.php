@@ -30,6 +30,7 @@ class UpdateRestaurantSettingRequest extends FormRequest
             'facebook' => ['nullable', 'string', 'max:255'],
             'wifi_ssid' => ['nullable', 'string', 'max:255'],
             'wifi_password' => ['nullable', 'string', 'max:255'],
+            'receipt_footer_text' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

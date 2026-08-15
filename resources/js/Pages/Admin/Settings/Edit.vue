@@ -31,6 +31,7 @@ const form = useForm({
     facebook: props.setting.facebook ?? '',
     wifi_ssid: props.setting.wifi_ssid ?? '',
     wifi_password: props.setting.wifi_password ?? '',
+    receipt_footer_text: props.setting.receipt_footer_text ?? '',
 });
 
 const logoPreview = ref(props.setting.logo_url);
@@ -185,6 +186,23 @@ function submit() {
                     </div>
                 </div>
                 <p class="mt-3 text-xs text-gray-400">{{ $t('settings.wifi_hint') }}</p>
+            </section>
+
+            <section class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+                <h3 class="mb-4 font-medium text-gray-900 dark:text-gray-100">{{ $t('settings.receipt') }}</h3>
+
+                <div>
+                    <InputLabel for="receipt_footer_text" :value="$t('settings.receipt_footer')" />
+                    <textarea
+                        id="receipt_footer_text"
+                        v-model="form.receipt_footer_text"
+                        rows="3"
+                        maxlength="500"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                    ></textarea>
+                    <InputError class="mt-2" :message="form.errors.receipt_footer_text" />
+                </div>
+                <p class="mt-3 text-xs text-gray-400">{{ $t('settings.receipt_footer_hint') }}</p>
             </section>
 
             <div class="flex justify-end">

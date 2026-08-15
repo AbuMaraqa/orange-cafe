@@ -32,6 +32,7 @@ class RestaurantSettingController extends Controller
                 'facebook' => $settings->facebook,
                 'wifi_ssid' => $settings->wifi_ssid,
                 'wifi_password' => $settings->wifi_password,
+                'receipt_footer_text' => $settings->receipt_footer_text,
             ],
         ]);
     }

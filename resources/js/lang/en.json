@@ -410,7 +410,10 @@
         "wifi": "Wi-Fi",
         "wifi_ssid": "Network name (SSID)",
         "wifi_password": "Password",
-        "wifi_hint": "Printed as a scannable Wi-Fi QR code next to each table's menu QR — leave blank to skip it."
+        "wifi_hint": "Printed as a scannable Wi-Fi QR code next to each table's menu QR — leave blank to skip it.",
+        "receipt": "Cashier Receipt",
+        "receipt_footer": "Receipt footer text",
+        "receipt_footer_hint": "Shown at the bottom of the printed cashier receipt. You can enter more than one line. Leave blank to use the default (\"Thank you for your visit!\")."
     },
     "language_switcher": {
         "label": "Language"

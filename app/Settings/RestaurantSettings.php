@@ -45,6 +45,8 @@ class RestaurantSettings extends Settings
 
     public ?string $wifi_password;
 
+    public ?string $receipt_footer_text;
+
     public static function group(): string
     {
         return 'restaurant';
