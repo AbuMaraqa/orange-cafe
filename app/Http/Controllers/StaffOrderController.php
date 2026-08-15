@@ -77,15 +77,16 @@ class StaffOrderController extends Controller
     }
 
     /**
-     * A pending order hasn't been sent to the kitchen as final yet, so an
-     * admin can still correct a mis-ordered item — once it moves past
-     * pending, removal has to go through a manager instead (out of scope
-     * here) since the kitchen may already be preparing it.
+     * Lets an admin correct a mis-ordered item at any point up to payment
+     * (route is already role:admin-only — see routes/web.php) — once an
+     * order is paid, the till total has to stay in sync with what was
+     * actually collected, so removal is refused from there on, same cutoff
+     * moveTable() uses.
      */
     public function removeItem(Order $order, OrderItem $item): RedirectResponse
     {
         abort_if($item->order_id !== $order->id, 404);
-        abort_unless($order->status === 'pending', 403);
+        abort_if($order->isPaid(), 403);
 
         $order->decrement('total_cents', $item->subtotal_cents);
         $item->delete();

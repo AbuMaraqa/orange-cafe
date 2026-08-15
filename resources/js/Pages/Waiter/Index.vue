@@ -30,6 +30,7 @@ const props = defineProps({
 
 const { t } = useI18n();
 const page = usePage();
+const isAdmin = computed(() => (page.props.auth.roles ?? []).includes('admin'));
 const { statusBadgeClasses } = useOrderStatus();
 const { calls, popupCall, dismissPopup } = useWaiterCalls(props.waiterCalls);
 const { tables, untabledOrders } = useStaffFloorPlan(() => props.tables, () => props.untabledOrders);
@@ -106,6 +107,11 @@ function printOrder(order) {
 function onTableMoved() {
     showMovePicker.value = false;
     selected.value = null;
+}
+
+function removeItem(order, item) {
+    if (!confirm(`${item.product_name}: ` + t('common.are_you_sure'))) return;
+    router.delete(route('orders.items.destroy', [order.id, item.id]), { preserveScroll: true });
 }
 </script>
 
@@ -211,9 +217,18 @@ function onTableMoved() {
                     </div>
 
                     <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-gray-700 dark:text-gray-300">
-                        <li v-for="item in selected.active_order.items" :key="item.id">
-                            <span class="font-medium">{{ item.quantity }}×</span> {{ item.product_name }}
-                            <div v-if="item.notes" class="ms-4 text-xs italic text-amber-600 dark:text-amber-500">{{ item.notes }}</div>
+                        <li v-for="item in selected.active_order.items" :key="item.id" class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <span class="font-medium">{{ item.quantity }}×</span> {{ item.product_name }}
+                                <div v-if="item.notes" class="ms-4 text-xs italic text-amber-600 dark:text-amber-500">{{ item.notes }}</div>
+                            </div>
+                            <button
+                                v-if="isAdmin && !selected.active_order.is_paid"
+                                type="button"
+                                class="shrink-0 text-gray-300 hover:text-red-600"
+                                :title="t('common.delete')"
+                                @click="removeItem(selected.active_order, item)"
+                            ><NavIcon name="close" class="h-3.5 w-3.5" /></button>
                         </li>
                     </ul>
                     <p v-if="selected.active_order.notes" class="mb-4 -mt-2 text-xs italic text-amber-600 dark:text-amber-500">{{ selected.active_order.notes }}</p>

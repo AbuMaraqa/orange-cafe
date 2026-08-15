@@ -2,6 +2,15 @@
 
 return [
 
+    'users' => [
+        'created' => 'User created successfully.',
+        'updated' => 'User updated successfully.',
+        'deleted' => 'User deleted successfully.',
+        'cannot_delete_self' => 'You cannot delete your own account.',
+        'cannot_delete_last_admin' => 'At least one administrator must remain.',
+        'cannot_demote_last_admin' => 'This user\'s role cannot be changed — they are the last administrator.',
+    ],
+
     'languages' => [
         'created' => 'Language created successfully.',
         'updated' => 'Language updated successfully.',

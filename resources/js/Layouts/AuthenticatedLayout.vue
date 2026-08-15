@@ -54,6 +54,7 @@ const navGroups = computed(() => [
     {
         title: t('nav.group_system'),
         items: [
+            { label: t('nav.users'), icon: 'users', route: 'admin.users.index', visible: isAdmin.value },
             { label: t('nav.languages'), icon: 'languages', route: 'admin.languages.index', visible: isAdmin.value },
             { label: t('nav.printers'), icon: 'printer', route: 'admin.printers.index', visible: isAdmin.value },
             { label: t('nav.settings'), icon: 'settings', route: 'admin.settings.edit', visible: isAdmin.value },

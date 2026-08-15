@@ -52,7 +52,8 @@
         "tags": "Tags",
         "services": "Services",
         "printers": "Printers",
-        "settings": "Restaurant Settings"
+        "settings": "Restaurant Settings",
+        "users": "Users"
     },
     "auth": {
         "login": "Log in",
@@ -99,6 +100,19 @@
         "quick_access": "Quick Access"
     },
     "admin": {
+        "users": {
+            "title": "Users",
+            "create": "Add User",
+            "edit": "Edit User",
+            "role": "Role",
+            "password_hint": "Leave blank to keep the current password.",
+            "roles": {
+                "admin": "Administrator",
+                "waiter": "Waiter",
+                "cashier": "Cashier",
+                "kitchen": "Kitchen"
+            }
+        },
         "languages": {
             "title": "Languages",
             "add_language": "Add Language",

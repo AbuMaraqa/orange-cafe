@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\RestaurantTableController;
 use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Admin\ServiceController;
 use App\Http\Controllers\Admin\TagController;
+use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\CustomerMenuController;
 use App\Http\Controllers\DashboardController;
@@ -68,6 +69,8 @@ Route::group([
     });
 
     Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
+        Route::resource('users', UserController::class)->except(['show']);
+
         Route::resource('languages', LanguageController::class)->except(['show']);
         Route::patch('languages/{language}/toggle-active', [LanguageController::class, 'activate'])->name('languages.activate');
         Route::patch('languages/{language}/make-default', [LanguageController::class, 'makeDefault'])->name('languages.default');
