@@ -87,7 +87,7 @@ class EscPosImageRenderer
             // -singlefile writes exactly "{prefix}.png" instead of
             // "{prefix}-1.png", so the output path is known up front.
             $process = new Process([
-                'pdftoppm', '-png', '-r', (string) self::DPI, '-singlefile', $pdfPath, "{$dir}/{$id}",
+                config('services.poppler.pdftoppm_path'), '-png', '-r', (string) self::DPI, '-singlefile', $pdfPath, "{$dir}/{$id}",
             ]);
             $process->setTimeout(10);
             $process->run();

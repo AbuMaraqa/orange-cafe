@@ -115,6 +115,6 @@ class UsbPrinterTransport
             int libusb_release_interface(libusb_device_handle *dev_handle, int interface_number);
             void libusb_close(libusb_device_handle *dev_handle);
             int libusb_bulk_transfer(libusb_device_handle *dev_handle, unsigned char endpoint, unsigned char *data, int length, int *actual_length, unsigned int timeout);
-            CDEF, 'libusb-1.0.so.0');
+            CDEF, config('services.libusb.path'));
     }
 }

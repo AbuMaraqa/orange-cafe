@@ -43,6 +43,10 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // Laravel calls its own Reverb HTTP API over TLS to publish events;
+                // point Guzzle at the local self-signed CA instead of disabling
+                // verification outright.
+                'verify' => env('REVERB_TLS_CA', true),
             ],
         ],
 
