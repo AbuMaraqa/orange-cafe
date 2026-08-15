@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Admin\Concerns\FillsMissingTranslations;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreModifierGroupRequest;
 use App\Http\Requests\Admin\UpdateModifierGroupRequest;
@@ -15,6 +16,8 @@ use Inertia\Response;
 
 class ModifierGroupController extends Controller
 {
+    use FillsMissingTranslations;
+
     public function __construct(protected LanguageRegistry $registry)
     {
     }
@@ -43,16 +46,18 @@ class ModifierGroupController extends Controller
 
     public function store(StoreModifierGroupRequest $request): RedirectResponse
     {
-        DB::transaction(function () use ($request) {
+        $defaultLocale = $this->registry->default()?->code;
+
+        DB::transaction(function () use ($request, $defaultLocale) {
             $data = $request->validated();
             $modifiers = $data['modifiers'];
-            $translations = $data['translations'];
+            $translations = $this->fillMissingTranslations($data['translations'], $defaultLocale);
             unset($data['modifiers'], $data['translations']);
 
             $group = ModifierGroup::create([...$data, ...$translations]);
 
             foreach ($modifiers as $index => $modifier) {
-                $modifierTranslations = $modifier['translations'];
+                $modifierTranslations = $this->fillMissingTranslations($modifier['translations'], $defaultLocale);
                 unset($modifier['translations']);
 
                 $group->modifiers()->create([
@@ -78,10 +83,12 @@ class ModifierGroupController extends Controller
 
     public function update(UpdateModifierGroupRequest $request, ModifierGroup $modifierGroup): RedirectResponse
     {
-        DB::transaction(function () use ($request, $modifierGroup) {
+        $defaultLocale = $this->registry->default()?->code;
+
+        DB::transaction(function () use ($request, $modifierGroup, $defaultLocale) {
             $data = $request->validated();
             $modifiers = $data['modifiers'];
-            $translations = $data['translations'];
+            $translations = $this->fillMissingTranslations($data['translations'], $defaultLocale);
             unset($data['modifiers'], $data['translations']);
 
             $modifierGroup->update([...$data, ...$translations]);
@@ -89,7 +96,7 @@ class ModifierGroupController extends Controller
             $keptIds = [];
 
             foreach ($modifiers as $index => $modifier) {
-                $modifierTranslations = $modifier['translations'];
+                $modifierTranslations = $this->fillMissingTranslations($modifier['translations'], $defaultLocale);
                 $id = $modifier['id'] ?? null;
                 unset($modifier['id'], $modifier['translations']);
                 $modifier['sort_order'] = $modifier['sort_order'] ?? $index;

@@ -3,20 +3,22 @@ import { onMounted, onUnmounted, reactive, watch } from 'vue';
 const CLOSED_STATUSES = ['completed', 'cancelled'];
 
 /**
- * Keeps the waiter floor plan's table occupancy — and the "other orders"
- * list for orders with no table — in sync in real time over the same
- * `orders` private Reverb channel every staff dashboard subscribes to
- * (see useLiveOrders), AND re-synced from fresh Inertia props after the
- * acting waiter's own actions (e.g. removing an item) — broadcasts use
- * `toOthers()` so the actor never gets their own change over the socket,
- * only through the page's own response. Existing table/order objects are
- * patched in place rather than replaced so a currently-open popup (which
- * holds a direct reference into this state) keeps reflecting it live.
+ * Keeps a staff floor plan's table occupancy — and the "other orders" list
+ * for orders with no table — in sync in real time over the same `orders`
+ * private Reverb channel every staff dashboard subscribes to (see
+ * useLiveOrders), AND re-synced from fresh Inertia props after the acting
+ * user's own actions (e.g. removing an item) — broadcasts use `toOthers()`
+ * so the actor never gets their own change over the socket, only through
+ * the page's own response. Existing table/order objects are patched in
+ * place rather than replaced so a currently-open popup (which holds a
+ * direct reference into this state) keeps reflecting it live. Shared by
+ * the waiter and cashier floor plans — table occupancy works identically
+ * for both.
  *
  * @param {() => Array} getTables reactive getter, e.g. `() => props.tables`
  * @param {() => Array} getUntabledOrders reactive getter, e.g. `() => props.untabledOrders`
  */
-export function useWaiterFloorPlan(getTables, getUntabledOrders) {
+export function useStaffFloorPlan(getTables, getUntabledOrders) {
     const tables = reactive(getTables().map((t) => ({ ...t })));
     const untabledOrders = reactive(getUntabledOrders().map((o) => ({ ...o })));
 
@@ -71,9 +73,22 @@ export function useWaiterFloorPlan(getTables, getUntabledOrders) {
         if (owningTable) {
             if (CLOSED_STATUSES.includes(patch.status)) {
                 owningTable.active_order = null;
-            } else {
-                Object.assign(owningTable.active_order, patch);
+                return;
             }
+
+            // Moved to a different table (or off the floor plan entirely) —
+            // e.g. StaffOrderController::moveTable — so relocate it instead
+            // of patching it in place, otherwise every OTHER connected
+            // staff screen would keep showing it stuck on its old table
+            // until they reload.
+            if ('table_id' in patch && patch.table_id !== owningTable.id) {
+                const movedOrder = { ...owningTable.active_order, ...patch };
+                owningTable.active_order = null;
+                relocate(movedOrder, patch.table_id);
+                return;
+            }
+
+            Object.assign(owningTable.active_order, patch);
             return;
         }
 
@@ -82,20 +97,32 @@ export function useWaiterFloorPlan(getTables, getUntabledOrders) {
         if (untabledIndex !== -1) {
             if (CLOSED_STATUSES.includes(patch.status)) {
                 untabledOrders.splice(untabledIndex, 1);
-            } else {
-                Object.assign(untabledOrders[untabledIndex], patch);
+                return;
             }
+
+            if ('table_id' in patch && patch.table_id) {
+                const movedOrder = { ...untabledOrders[untabledIndex], ...patch };
+                untabledOrders.splice(untabledIndex, 1);
+                relocate(movedOrder, patch.table_id);
+                return;
+            }
+
+            Object.assign(untabledOrders[untabledIndex], patch);
             return;
         }
 
         if (!isNew || CLOSED_STATUSES.includes(patch.status)) return;
 
-        const targetTable = patch.table_id ? tables.find((t) => t.id === patch.table_id) : null;
+        relocate(patch, patch.table_id);
+    }
+
+    function relocate(order, tableId) {
+        const targetTable = tableId ? tables.find((t) => t.id === tableId) : null;
 
         if (targetTable) {
-            targetTable.active_order = patch;
+            targetTable.active_order = order;
         } else {
-            untabledOrders.unshift(patch);
+            untabledOrders.unshift(order);
         }
     }
 

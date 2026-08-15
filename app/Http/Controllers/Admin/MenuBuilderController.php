@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Admin\Concerns\FillsMissingTranslations;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreMenuItemRequest;
 use App\Http\Requests\Admin\StoreMenuSectionRequest;
@@ -26,6 +27,8 @@ use Inertia\Response;
  */
 class MenuBuilderController extends Controller
 {
+    use FillsMissingTranslations;
+
     public function __construct(protected LanguageRegistry $registry)
     {
     }
@@ -80,7 +83,7 @@ class MenuBuilderController extends Controller
     public function storeSection(StoreMenuSectionRequest $request, Menu $menu): RedirectResponse
     {
         $data = $request->validated();
-        $translations = $data['translations'];
+        $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         unset($data['translations']);
 
         $maxSortOrder = $menu->categories()->max('sort_order');

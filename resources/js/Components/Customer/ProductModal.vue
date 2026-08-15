@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import NavIcon from '@/Components/NavIcon.vue';
 
 const props = defineProps({
     product: {
@@ -11,10 +12,19 @@ const props = defineProps({
         type: String,
         required: true,
     },
+    logoUrl: {
+        type: String,
+        default: null,
+    },
 });
 
 const emit = defineEmits(['close', 'add']);
 const { t } = useI18n();
+
+// See ProductCard.vue — a stale/broken image_path shouldn't render as a
+// raw alt-text placeholder where the logo fallback belongs.
+const imageFailed = ref(false);
+watch(() => props.product, () => { imageFailed.value = false; });
 
 // { [groupId]: number[] } — selected modifier ids per group.
 const selections = reactive({});
@@ -94,19 +104,32 @@ function confirm() {
 <template>
     <div class="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/50 sm:items-center" @click.self="emit('close')">
         <div class="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white sm:rounded-2xl dark:bg-gray-900">
-            <div v-if="product.image_url" class="h-52 w-full overflow-hidden">
-                <img :src="product.image_url" :alt="product.name" class="h-full w-full object-cover" />
+            <div v-if="product.image_url && !imageFailed" class="h-52 w-full overflow-hidden">
+                <img :src="product.image_url" :alt="product.name" class="h-full w-full object-cover" @error="imageFailed = true" />
             </div>
-            <div v-else class="flex h-24 w-full items-center justify-center bg-gray-100 text-4xl text-gray-300 dark:bg-gray-800 dark:text-gray-700">🍽</div>
+            <div v-else-if="logoUrl" class="flex h-24 w-full items-center justify-center bg-gray-50 p-4 dark:bg-gray-800">
+                <img :src="logoUrl" :alt="product.name" class="h-full max-w-[40%] object-contain opacity-80" />
+            </div>
+            <div v-else class="flex h-24 w-full items-center justify-center bg-gray-100 text-gray-300 dark:bg-gray-800 dark:text-gray-700">
+                <NavIcon name="camera" class="h-10 w-10" />
+            </div>
 
             <div class="p-5">
                 <div class="flex items-start justify-between gap-3">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                        <span v-if="product.is_featured" class="me-1 text-amber-500">✦</span>{{ product.name }}
+                        <NavIcon v-if="product.is_featured" name="star" class="me-1 -mt-0.5 inline h-4 w-4 text-amber-500" />{{ product.name }}
                     </h3>
-                    <button type="button" class="shrink-0 text-gray-400 hover:text-gray-600" @click="emit('close')">✕</button>
+                    <button type="button" class="shrink-0 text-gray-400 hover:text-gray-600" @click="emit('close')">
+                        <NavIcon name="close" class="h-5 w-5" />
+                    </button>
                 </div>
-                <p class="mt-1 font-semibold" style="color: var(--brand-primary)">{{ formatPrice(product.price_cents) }}</p>
+                <div class="mt-1 flex items-center gap-2">
+                    <p class="font-semibold" style="color: var(--brand-primary)">{{ formatPrice(product.price_cents) }}</p>
+                    <span v-if="product.prep_time_minutes" class="inline-flex items-center gap-0.5 text-xs text-gray-400">
+                        <NavIcon name="clock" class="h-3.5 w-3.5" />
+                        {{ t('menu.prep_time', { minutes: product.prep_time_minutes }) }}
+                    </span>
+                </div>
                 <p v-if="product.description" class="mt-1 text-sm text-gray-500">{{ product.description }}</p>
 
                 <div v-if="product.tags.length" class="mt-2 flex flex-wrap gap-2">

@@ -24,6 +24,18 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    showPrint: {
+        type: Boolean,
+        default: false,
+    },
+    showCashierPrint: {
+        type: Boolean,
+        default: false,
+    },
+    showConfirm: {
+        type: Boolean,
+        default: false,
+    },
     removableItems: {
         type: Boolean,
         default: false,
@@ -32,12 +44,22 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    // The cashier juggles many tables at once and mostly just needs to see
+    // who owes what — the full item list is secondary detail, so it starts
+    // collapsed behind a tap instead of crowding every card open by
+    // default. Waiter/Kitchen/Dashboard need the items visible at a glance
+    // to actually do their job, so they leave this off.
+    collapsible: {
+        type: Boolean,
+        default: false,
+    },
 });
 
-const emit = defineEmits(['advance', 'pay', 'remove-item']);
+const emit = defineEmits(['advance', 'pay', 'remove-item', 'print', 'print-cashier', 'confirm']);
 const { t } = useI18n();
 const page = usePage();
 const { statusBadgeClasses } = useOrderStatus();
+const expanded = ref(!props.collapsible);
 
 function formatPrice(cents) {
     return `${page.props.branding.currency_symbol}${(cents / 100).toFixed(2)}`;
@@ -79,36 +101,60 @@ function confirmPay() {
                 <p class="font-semibold text-gray-900 dark:text-gray-100">
                     {{ order.table_label ? `${t('tables.title')} ${order.table_label}` : order.reference }}
                 </p>
-                <p class="text-xs text-gray-500">{{ order.reference }} · {{ timeAgo(order.created_at) }}</p>
+                <p class="text-xs text-gray-500">
+                    <template v-if="order.table_label">{{ order.reference }} · </template>
+                    <template v-if="order.customer_name">{{ order.customer_name }} · </template>
+                    {{ timeAgo(order.created_at) }}
+                </p>
             </div>
             <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium" :class="statusBadgeClasses(order.status_color)">
                 {{ t(`orders.statuses.${order.status}`) }}
             </span>
         </div>
 
-        <ul class="mt-3 space-y-1.5 text-sm text-gray-700 dark:text-gray-300">
-            <li v-for="item in order.items" :key="item.id" class="flex items-start justify-between gap-2">
-                <div class="min-w-0">
-                    <span class="font-medium">{{ item.quantity }}×</span> {{ item.product_name }}
-                    <span v-if="item.modifiers.length" class="text-gray-400">({{ item.modifiers.join(', ') }})</span>
-                    <div v-if="item.notes" class="ms-4 text-xs italic text-gray-400">{{ item.notes }}</div>
-                </div>
-                <div class="flex shrink-0 items-center gap-2">
-                    <span v-if="showItemPrices" class="tabular-nums text-gray-500 dark:text-gray-400">{{ formatPrice(item.subtotal_cents) }}</span>
-                    <button
-                        v-if="removableItems && order.status === 'pending'"
-                        type="button"
-                        class="text-gray-300 hover:text-red-600"
-                        :title="t('common.delete')"
-                        @click="emit('remove-item', item)"
-                    >✕</button>
-                </div>
-            </li>
-        </ul>
-        <p v-if="order.notes" class="mt-2 text-xs italic text-gray-500">{{ order.notes }}</p>
+        <button
+            v-if="collapsible && !expanded"
+            type="button"
+            class="mt-3 flex w-full items-center justify-between rounded-md bg-gray-50 px-2.5 py-1.5 text-xs text-gray-500 hover:bg-gray-100 dark:bg-gray-800/60 dark:text-gray-400 dark:hover:bg-gray-800"
+            @click="expanded = true"
+        >
+            <span>{{ t('staff.items_count', { count: order.items.length }) }}</span>
+            <span class="font-medium">{{ t('staff.show_details') }} ▾</span>
+        </button>
+
+        <template v-else>
+            <ul class="mt-3 space-y-1.5 text-sm text-gray-700 dark:text-gray-300">
+                <li v-for="item in order.items" :key="item.id" class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                        <span class="font-medium">{{ item.quantity }}×</span> {{ item.product_name }}
+                        <span v-if="item.modifiers.length" class="text-gray-400">({{ item.modifiers.join(', ') }})</span>
+                        <div v-if="item.notes" class="ms-4 text-xs italic text-gray-400">{{ item.notes }}</div>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                        <span v-if="showItemPrices" class="tabular-nums text-gray-500 dark:text-gray-400">{{ formatPrice(item.subtotal_cents) }}</span>
+                        <button
+                            v-if="removableItems && order.status === 'pending'"
+                            type="button"
+                            class="text-gray-300 hover:text-red-600"
+                            :title="t('common.delete')"
+                            @click="emit('remove-item', item)"
+                        ><NavIcon name="close" class="h-3.5 w-3.5" /></button>
+                    </div>
+                </li>
+            </ul>
+            <p v-if="order.notes" class="mt-2 text-xs italic text-gray-500">{{ order.notes }}</p>
+            <button
+                v-if="collapsible"
+                type="button"
+                class="mt-2 text-xs font-medium text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                @click="expanded = false"
+            >
+                {{ t('staff.hide_details') }} ▴
+            </button>
+        </template>
 
         <div class="mt-3 border-t border-gray-100 pt-3 dark:border-gray-800">
-            <div class="flex items-center justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <span class="font-semibold tabular-nums text-gray-900 dark:text-gray-100">{{ formatPrice(order.total_cents) }}</span>
                     <div
@@ -119,18 +165,27 @@ function confirmPay() {
                         {{ t('admin.accounting.received') }} {{ formatPrice(order.amount_paid_cents) }}
                     </div>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap justify-end gap-2">
                     <a v-if="showInvoice" :href="route('orders.invoice', order.id)" target="_blank" rel="noopener">
                         <SecondaryButton type="button" class="!px-2.5">
                             <NavIcon name="printer" class="h-4 w-4" />
                         </SecondaryButton>
                     </a>
+                    <SecondaryButton v-if="showPrint" type="button" @click="emit('print')">
+                        {{ t('staff.print') }}
+                    </SecondaryButton>
+                    <SecondaryButton v-if="showCashierPrint" type="button" @click="emit('print-cashier')">
+                        {{ t('staff.print_cashier') }}
+                    </SecondaryButton>
                     <SecondaryButton v-if="showPay && !order.is_paid && !showingPayForm" type="button" @click="openPayForm">
                         {{ t('staff.mark_paid') }}
                     </SecondaryButton>
                     <span v-else-if="showPay && order.is_paid" class="self-center text-xs font-medium text-teal-600">
                         {{ t('tables.paid') }}
                     </span>
+                    <PrimaryButton v-if="showConfirm && order.status === 'pending'" type="button" @click="emit('confirm')">
+                        {{ t('staff.confirm_order') }}
+                    </PrimaryButton>
                     <PrimaryButton v-if="nextStatusLabel" type="button" @click="emit('advance')">
                         {{ nextStatusLabel }}
                     </PrimaryButton>

@@ -29,13 +29,15 @@ class WaiterController extends Controller
 
         $tables = RestaurantTable::query()
             ->where('is_active', true)
-            ->with(['orders' => fn ($query) => $query->whereIn('status', config('orders.active_statuses'))->latest()->with('items')])
+            ->with(['orders' => fn ($query) => $query->whereIn('status', config('orders.active_statuses'))->latest()->with('items.modifiers')])
             ->get();
 
+        // Oldest first: the call that's been waiting longest is the most
+        // urgent, so it should be first in the queue the waiter sees.
         $calls = WaiterCall::query()
-            ->with('table')
+            ->with('restaurantTable', 'service')
             ->where('status', WaiterCallStatus::Pending)
-            ->latest()
+            ->oldest()
             ->get();
 
         return Inertia::render('Waiter/Index', [
@@ -44,6 +46,10 @@ class WaiterController extends Controller
             'waiterCalls' => $calls->map(fn (WaiterCall $call) => [
                 'id' => $call->id,
                 'table_label' => $call->tableLabel(),
+                'service_name' => $call->service?->name,
+                'service_icon' => $call->service?->icon,
+                'service_image_url' => $call->service?->image_url,
+                'service_color' => $call->service?->displayColor(),
                 'created_at' => $call->created_at->toIso8601String(),
             ]),
         ]);

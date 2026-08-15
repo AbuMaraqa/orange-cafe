@@ -1,6 +1,7 @@
 <script setup>
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
+import NavIcon from '@/Components/NavIcon.vue';
 import { useOrderStatus } from '@/composables/useOrderStatus';
 
 const props = defineProps({
@@ -25,9 +26,9 @@ function formatPrice(cents) {
     <div class="mx-auto min-h-screen max-w-md bg-gray-50 px-4 py-10 dark:bg-gray-950">
         <div class="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-gray-800 dark:bg-gray-900">
             <div
-                class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full text-2xl text-white"
+                class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full text-white"
                 style="background-color: var(--brand-primary)"
-            >✓</div>
+            ><NavIcon name="check" class="h-6 w-6" /></div>
             <h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('menu.order_placed') }}</h1>
             <p class="mt-1 text-sm text-gray-500">{{ order.reference }}</p>
 

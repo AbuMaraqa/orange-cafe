@@ -1,6 +1,7 @@
 <script setup>
 import { useForm } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
+import NavIcon from '@/Components/NavIcon.vue';
 import { useCart } from '@/composables/useCart';
 
 const props = defineProps({
@@ -47,7 +48,9 @@ function submit() {
         <div class="flex h-full w-full max-w-md flex-col bg-white dark:bg-gray-900">
             <div class="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-800">
                 <h2 class="font-semibold text-gray-900 dark:text-gray-100">{{ t('menu.your_order') }}</h2>
-                <button type="button" class="text-gray-400 hover:text-gray-600" @click="emit('close')">✕</button>
+                <button type="button" class="text-gray-400 hover:text-gray-600" @click="emit('close')">
+                    <NavIcon name="close" class="h-5 w-5" />
+                </button>
             </div>
 
             <div class="flex-1 overflow-y-auto p-4">

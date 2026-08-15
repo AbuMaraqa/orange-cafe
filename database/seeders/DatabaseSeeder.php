@@ -18,8 +18,10 @@ class DatabaseSeeder extends Seeder
             RestaurantSettingsSeeder::class,
             CatalogSeeder::class,
             ImportedDishesSeeder::class,
+            OrangeMenuSeeder::class,
             RestaurantTableSeeder::class,
             PrinterSeeder::class,
+            ServiceSeeder::class,
         ]);
     }
 }

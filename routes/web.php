@@ -11,10 +11,13 @@ use App\Http\Controllers\Admin\PrinterController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RestaurantSettingController;
 use App\Http\Controllers\Admin\RestaurantTableController;
+use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
+use App\Http\Controllers\Admin\ServiceController;
 use App\Http\Controllers\Admin\TagController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\CustomerMenuController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\KitchenController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProfileController;
@@ -22,9 +25,7 @@ use App\Http\Controllers\StaffOrderController;
 use App\Http\Controllers\WaiterCallController;
 use App\Http\Controllers\WaiterController;
 use App\Http\Controllers\WaiterOrderController;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
 
 /*
@@ -44,14 +45,19 @@ Route::group([
     'middleware' => ['localize', 'localizationRedirect', 'localeSessionRedirect', 'sync.locale'],
 ], function () {
 
-    Route::get('/', function () {
-        return Inertia::render('Welcome', [
-            'canLogin' => Route::has('login'),
-            'canRegister' => Route::has('register'),
-            'laravelVersion' => Application::VERSION,
-            'phpVersion' => PHP_VERSION,
-        ]);
-    })->name('home');
+    // Root is the customer-facing entry point — scanning a table's QR
+    // already lands on /menu directly with table_id in the query string,
+    // but a bare / (e.g. someone typing the domain by hand) should still
+    // reach the menu rather than the Breeze scaffold page.
+    Route::get('/', fn () => redirect()->route('menu.index'))->name('home');
+
+    // Staff-facing entry point: /admin sends an admin straight to their
+    // dashboard, and sends anyone not logged in to /login first (the
+    // `auth` middleware remembers /admin as the intended URL and returns
+    // here after a successful login).
+    Route::get('/admin', fn () => redirect()->route('dashboard'))
+        ->middleware(['auth', 'role:admin'])
+        ->name('admin.home');
 
     Route::get('/dashboard', DashboardController::class)->middleware(['auth', 'verified'])->name('dashboard');
 
@@ -81,6 +87,7 @@ Route::group([
         Route::resource('products', ProductController::class)->except(['show']);
         Route::resource('modifier-groups', ModifierGroupController::class)->except(['show']);
         Route::resource('tags', TagController::class)->except(['show']);
+        Route::resource('services', ServiceController::class)->except(['show']);
         Route::resource('printers', PrinterController::class)->except(['show']);
         Route::post('printers/{printer}/test', [PrinterController::class, 'test'])->name('printers.test');
 
@@ -94,16 +101,25 @@ Route::group([
         Route::delete('tables/{table}', [RestaurantTableController::class, 'destroy'])->name('tables.destroy');
         Route::get('tables/{table}/qr', [RestaurantTableController::class, 'qrCode'])->name('tables.qr');
         Route::get('tables-qr', [RestaurantTableController::class, 'qrCodesAll'])->name('tables.qr-all');
+        Route::get('tables/{table}/services/{service}/qr', [RestaurantTableController::class, 'serviceQrCode'])->name('tables.service-qr');
 
         Route::get('orders', [AdminOrderController::class, 'index'])->name('orders.index');
         Route::get('accounting', [AccountingController::class, 'index'])->name('accounting.index');
+
+        Route::get('feedback', [AdminFeedbackController::class, 'index'])->name('feedback.index');
+        Route::patch('feedback/{feedback}/read', [AdminFeedbackController::class, 'markRead'])->name('feedback.read');
+        Route::delete('feedback/{feedback}', [AdminFeedbackController::class, 'destroy'])->name('feedback.destroy');
     });
 
-    Route::middleware(['auth', 'role:waiter|cashier|kitchen|admin'])
+    Route::middleware(['auth', 'role:cashier|kitchen|admin'])
         ->patch('orders/{order}/status', [StaffOrderController::class, 'updateStatus'])
         ->name('orders.status');
 
-    Route::middleware(['auth', 'role:waiter|cashier|admin'])
+    Route::middleware(['auth', 'role:waiter|admin'])
+        ->post('orders/{order}/confirm', [StaffOrderController::class, 'confirm'])
+        ->name('orders.confirm');
+
+    Route::middleware(['auth', 'role:admin'])
         ->delete('orders/{order}/items/{item}', [StaffOrderController::class, 'removeItem'])
         ->name('orders.items.destroy');
 
@@ -114,6 +130,18 @@ Route::group([
     Route::middleware(['auth', 'role:waiter|cashier|admin'])
         ->get('orders/{order}/invoice', [StaffOrderController::class, 'invoice'])
         ->name('orders.invoice');
+
+    Route::middleware(['auth', 'role:waiter|cashier|admin'])
+        ->patch('orders/{order}/table', [StaffOrderController::class, 'moveTable'])
+        ->name('orders.move-table');
+
+    Route::middleware(['auth', 'role:waiter|cashier|kitchen|admin'])
+        ->post('orders/{order}/print', [StaffOrderController::class, 'print'])
+        ->name('orders.print');
+
+    Route::middleware(['auth', 'role:cashier|admin'])
+        ->post('orders/{order}/print-cashier', [StaffOrderController::class, 'printForCashier'])
+        ->name('orders.print-cashier');
 
     Route::middleware(['auth', 'role:waiter|admin'])->get('/waiter', WaiterController::class)->name('waiter.index');
     Route::middleware(['auth', 'role:waiter|admin'])->get('/waiter/new-order', [WaiterOrderController::class, 'create'])->name('waiter.orders.create');
@@ -126,6 +154,8 @@ Route::group([
     Route::post('/menu/orders', [OrderController::class, 'store'])->name('menu.orders.store');
     Route::get('/menu/orders/{order}', [OrderController::class, 'show'])->name('menu.orders.show');
     Route::post('/waiter-calls', [WaiterCallController::class, 'store'])->name('waiter-calls.store');
+    Route::get('/call/{table}/{service}', [WaiterCallController::class, 'quick'])->name('waiter-calls.quick');
+    Route::post('/feedback', [FeedbackController::class, 'store'])->name('feedback.store');
     Route::middleware(['auth', 'role:waiter|admin'])
         ->patch('/waiter-calls/{call}/acknowledge', [WaiterCallController::class, 'acknowledge'])
         ->name('waiter-calls.acknowledge');

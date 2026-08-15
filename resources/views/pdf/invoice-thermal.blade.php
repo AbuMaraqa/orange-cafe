@@ -7,6 +7,8 @@
         .center { text-align: center; }
         .end { text-align: end; }
         .brand-name { font-size: 15px; font-weight: bold; }
+        .tagline { font-size: 10px; font-style: italic; color: #4b5563; }
+        .logo { max-width: 62mm; max-height: 36mm; margin-bottom: 4px; }
         .muted { font-size: 9.5px; color: #4b5563; }
         .divider { border-top: 1px dashed #6b7280; margin: 6px 0; }
         table.meta { width: 100%; font-size: 10px; margin-bottom: 2px; }
@@ -26,7 +28,13 @@
 </head>
 <body>
     <div class="center">
+        @if ($logoPath)
+            <img class="logo" src="{{ $logoPath }}" alt="{{ $branding->name }}">
+        @endif
         <div class="brand-name">{{ $branding->name }}</div>
+        @if ($branding->tagline)
+            <div class="tagline">{{ $branding->tagline }}</div>
+        @endif
         <div class="muted">{{ $branding->address }}</div>
         @if ($branding->phone)
             {{-- U+200E anchors the digit/dash run as strongly LTR — see the

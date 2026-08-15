@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Str;
 
 class Order extends Model
 {
@@ -34,7 +33,7 @@ class Order extends Model
     public static function generateReference(): string
     {
         do {
-            $reference = 'ORD-'.now()->format('ymd').'-'.strtoupper(Str::random(4));
+            $reference = now()->format('ymdHis').random_int(0, 9);
         } while (static::where('reference', $reference)->exists());
 
         return $reference;

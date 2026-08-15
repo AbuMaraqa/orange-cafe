@@ -30,6 +30,8 @@ class RestaurantSettingController extends Controller
                 'whatsapp' => $settings->whatsapp,
                 'instagram' => $settings->instagram,
                 'facebook' => $settings->facebook,
+                'wifi_ssid' => $settings->wifi_ssid,
+                'wifi_password' => $settings->wifi_password,
             ],
         ]);
     }

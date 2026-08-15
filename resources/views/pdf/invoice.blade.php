@@ -7,6 +7,8 @@
         .header { width: 100%; margin-bottom: 16px; }
         .header td { vertical-align: top; }
         .brand-name { font-size: 20px; font-weight: bold; }
+        .tagline { font-size: 12px; font-style: italic; color: #6b7280; }
+        .logo { max-width: 62mm; max-height: 36mm; margin-bottom: 6px; }
         .muted { color: #6b7280; font-size: 11px; }
         .meta { width: 100%; margin-bottom: 14px; border-collapse: collapse; }
         .meta td { padding: 3px 0; font-size: 12px; }
@@ -31,7 +33,13 @@
     <table class="header">
         <tr>
             <td style="width: 60%;">
+                @if ($logoPath)
+                    <img class="logo" src="{{ $logoPath }}" alt="{{ $branding->name }}">
+                @endif
                 <div class="brand-name">{{ $branding->name }}</div>
+                @if ($branding->tagline)
+                    <div class="tagline">{{ $branding->tagline }}</div>
+                @endif
                 <div class="muted">{{ $branding->address }}</div>
                 @if ($branding->phone)
                     {{-- U+200E (LRM) anchors the run as strongly LTR so the

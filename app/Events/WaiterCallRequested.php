@@ -34,10 +34,16 @@ class WaiterCallRequested implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
+        $this->call->loadMissing('service');
+
         return [
             'call' => [
                 'id' => $this->call->id,
                 'table_label' => $this->call->tableLabel(),
+                'service_name' => $this->call->service?->name,
+                'service_icon' => $this->call->service?->icon,
+                'service_image_url' => $this->call->service?->image_url,
+                'service_color' => $this->call->service?->displayColor(),
                 'created_at' => $this->call->created_at->toIso8601String(),
             ],
         ];

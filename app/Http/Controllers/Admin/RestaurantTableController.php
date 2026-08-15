@@ -7,29 +7,37 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreRestaurantTableRequest;
 use App\Http\Requests\Admin\UpdateRestaurantTableRequest;
 use App\Models\RestaurantTable;
+use App\Models\Service;
 use App\Services\LanguageRegistry;
 use App\Services\PdfService;
+use App\Services\QrCodeService;
 use App\Settings\RestaurantSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
-use Milon\Barcode\Facades\DNS2DFacade as DNS2D;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class RestaurantTableController extends Controller
 {
     use PresentsTables;
 
+    public function __construct(private readonly QrCodeService $qrCodeService)
+    {
+    }
+
     public function index(): Response
     {
         $tables = RestaurantTable::query()
-            ->with(['orders' => fn ($query) => $query->whereIn('status', config('orders.active_statuses'))->latest()->with('items')])
+            ->with(['orders' => fn ($query) => $query->whereIn('status', config('orders.active_statuses'))->latest()->with('items.modifiers')])
             ->get();
 
         return Inertia::render('Admin/Tables/Index', [
             'tables' => $tables->map(fn (RestaurantTable $table) => $this->presentTable($table)),
+            'services' => Service::query()->where('is_active', true)->orderBy('sort_order')->orderBy('id')->get()
+                ->map(fn (Service $service) => ['id' => $service->id, 'name' => $service->name, 'icon' => $service->icon]),
         ]);
     }
 
@@ -76,7 +84,8 @@ class RestaurantTableController extends Controller
         $mpdf = $pdf->fromView('pdf.table-qr', [
             'table' => $table,
             'branding' => $branding,
-            'qrCode' => $this->qrPng($this->menuUrl($table, $languages)),
+            'qrCode' => $this->qrPng($this->menuUrl($table, $languages), $branding),
+            'wifiQrCode' => $this->wifiPng($branding),
             'labels' => __('pdf'),
         ], 'ltr', ['format' => 'A6']);
 
@@ -94,7 +103,7 @@ class RestaurantTableController extends Controller
         $tables = RestaurantTable::query()->where('is_active', true)->orderBy('label')->get();
 
         $qrCodes = $tables->mapWithKeys(fn (RestaurantTable $table) => [
-            $table->id => $this->qrPng($this->menuUrl($table, $languages)),
+            $table->id => $this->qrPng($this->menuUrl($table, $languages), $branding),
         ]);
 
         $mpdf = $pdf->fromView('pdf.table-qr-sheet', [
@@ -110,6 +119,29 @@ class RestaurantTableController extends Controller
         ]);
     }
 
+    /**
+     * A printable sign for one table×service pair (e.g. a "charcoal" QR
+     * for a shisha table): scanning it fires the waiter call immediately
+     * and shows a confirmation page — no menu browsing in between.
+     */
+    public function serviceQrCode(RestaurantTable $table, Service $service, PdfService $pdf, RestaurantSettings $branding, LanguageRegistry $languages): HttpResponse
+    {
+        $mpdf = $pdf->fromView('pdf.table-service-qr', [
+            'table' => $table,
+            'service' => $service,
+            'branding' => $branding,
+            'qrCode' => $this->qrPng($this->serviceUrl($table, $service, $languages), $branding),
+            'labels' => __('pdf'),
+        ], 'ltr', ['format' => 'A6']);
+
+        $filename = "table-{$table->label}-{$service->slug}-qr.pdf";
+
+        return response($mpdf->Output($filename, \Mpdf\Output\Destination::STRING_RETURN), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+        ]);
+    }
+
     protected function menuUrl(RestaurantTable $table, LanguageRegistry $languages): string
     {
         $defaultLocale = $languages->default()?->code;
@@ -118,8 +150,38 @@ class RestaurantTableController extends Controller
         return $base.'?table_id='.$table->id.'&table_label='.urlencode($table->label);
     }
 
-    protected function qrPng(string $data): string
+    protected function serviceUrl(RestaurantTable $table, Service $service, LanguageRegistry $languages): string
     {
-        return DNS2D::getBarcodePNG($data, 'QRCODE', 6, 6);
+        $defaultLocale = $languages->default()?->code;
+
+        return LaravelLocalization::getLocalizedURL($defaultLocale, route('waiter-calls.quick', [$table, $service], true));
+    }
+
+    protected function qrPng(string $data, ?RestaurantSettings $branding = null): string
+    {
+        $logoPath = $branding?->logo_path && Storage::disk('public')->exists($branding->logo_path)
+            ? Storage::disk('public')->path($branding->logo_path)
+            : null;
+
+        return base64_encode($this->qrCodeService->generatePng($data, $logoPath));
+    }
+
+    /**
+     * A phone's camera reads a QR encoding the `WIFI:` URI as "join this
+     * network" directly — it can't also open a link in the same scan, so
+     * this prints as its own code next to the menu QR rather than being
+     * folded into it. Null (no logo overlay, unlike qrPng) keeps the
+     * WPA fields' higher module density scanning reliably.
+     */
+    protected function wifiPng(RestaurantSettings $branding): ?string
+    {
+        if (! $branding->wifi_ssid) {
+            return null;
+        }
+
+        $escape = fn (string $value) => addcslashes($value, '\\;,:"');
+        $data = 'WIFI:T:WPA;S:'.$escape($branding->wifi_ssid).';P:'.$escape($branding->wifi_password ?? '').';;';
+
+        return base64_encode($this->qrCodeService->generatePng($data));
     }
 }

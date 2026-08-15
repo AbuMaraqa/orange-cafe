@@ -35,6 +35,10 @@ function advance(order) {
 
     router.patch(route('orders.status', order.id), { status: next }, { preserveScroll: true });
 }
+
+function printOrder(order) {
+    router.post(route('orders.print', order.id), {}, { preserveScroll: true });
+}
 </script>
 
 <template>
@@ -51,7 +55,9 @@ function advance(order) {
                 :key="order.id"
                 :order="order"
                 :next-status-label="statusLabel(order.status)"
+                show-print
                 @advance="advance(order)"
+                @print="printOrder(order)"
             />
         </div>
     </AuthenticatedLayout>

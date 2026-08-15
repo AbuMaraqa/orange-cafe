@@ -1,5 +1,6 @@
 <script setup>
 import { reactive, ref, watch } from 'vue';
+import NavIcon from '@/Components/NavIcon.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import draggable from 'vuedraggable';
@@ -170,6 +171,11 @@ function toggleItemFlag(item, field) {
                                 <span class="item-drag-handle cursor-move text-gray-300 hover:text-gray-500">⠿</span>
                                 <div class="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-gray-100 dark:bg-gray-800">
                                     <img v-if="item.image_url" :src="item.image_url" class="h-full w-full object-cover" />
+                                    <img
+                                        v-else-if="page.props.branding.logo_url"
+                                        :src="page.props.branding.logo_url"
+                                        class="h-full w-full object-contain p-1 opacity-70"
+                                    />
                                 </div>
                                 <span class="min-w-0 flex-1 truncate text-sm text-gray-800 dark:text-gray-200">{{ item.name }}</span>
 
@@ -179,7 +185,7 @@ function toggleItemFlag(item, field) {
                                     step="0.01"
                                     min="0"
                                     :placeholder="(item.base_price_cents / 100).toFixed(2)"
-                                    class="w-24 rounded-md border-gray-300 py-1 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                                    class="focus-brand w-24 rounded-md border-gray-300 py-1 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                                     @change="(e) => { item.price_cents = e.target.value; updateItemPrice(item); }"
                                 />
 
@@ -202,10 +208,12 @@ function toggleItemFlag(item, field) {
                                         : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'"
                                     @click="toggleItemFlag(item, 'is_featured')"
                                 >
-                                    ★ {{ $t('admin.menus.featured') }}
+                                    <NavIcon name="star" class="me-1 inline h-3 w-3 -mt-0.5" /> {{ $t('admin.menus.featured') }}
                                 </button>
 
-                                <button type="button" class="text-gray-300 hover:text-red-600" @click="removeItem(item)">✕</button>
+                                <button type="button" class="text-gray-300 hover:text-red-600" @click="removeItem(item)">
+                                    <NavIcon name="close" class="h-4 w-4" />
+                                </button>
                             </div>
                         </template>
                     </draggable>
@@ -217,11 +225,11 @@ function toggleItemFlag(item, field) {
                     <div class="flex items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-2.5 dark:border-gray-800 dark:bg-gray-900/30">
                         <select
                             v-model="ensureItemState(section.id).product_id"
-                            class="min-w-0 flex-1 rounded-md border-gray-300 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                            class="focus-brand min-w-0 flex-1 rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                         >
                             <option value="">{{ $t('admin.menus.pick_product') }}</option>
                             <option v-for="product in availableProducts" :key="product.id" :value="product.id">
-                                {{ product.name }} — {{ formatPrice(product.price_cents) }}
+                                {{ `${product.name} — ‎${formatPrice(product.price_cents)}` }}
                             </option>
                         </select>
                         <input
@@ -230,7 +238,7 @@ function toggleItemFlag(item, field) {
                             step="0.01"
                             min="0"
                             :placeholder="$t('admin.menus.price_override')"
-                            class="w-28 rounded-md border-gray-300 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                            class="focus-brand w-28 rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                         />
                         <button
                             type="button"
@@ -250,7 +258,7 @@ function toggleItemFlag(item, field) {
                 v-model="newSectionName"
                 type="text"
                 :placeholder="$t('admin.menus.new_section_placeholder')"
-                class="min-w-0 flex-1 rounded-md border-gray-300 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                class="focus-brand min-w-0 flex-1 rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                 @keyup.enter="addSection"
             />
             <button

@@ -24,8 +24,13 @@ class UpdateCategoryRequest extends FormRequest
             // for this section's products denormalize menu_id too, and
             // moving a section between menus would orphan them. Delete and
             // recreate the section under the right menu instead.
-            'parent_id' => ['nullable', 'integer', 'exists:categories,id,parent_id,NULL'],
+            'parent_id' => ['nullable', 'integer', 'exists:categories,id'],
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', Rule::unique('categories', 'slug')->ignore($this->route('category'))],
+            // Must match a real Printer's station exactly (the form
+            // submits it from a dropdown of configured printers) —
+            // KitchenPrinterService looks printers up by this string.
+            'station' => ['nullable', 'string', 'max:100', 'exists:printers,station'],
+            'image' => ['nullable', 'image', 'max:2048'],
             'is_active' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'translations' => ['required', 'array'],
@@ -49,8 +54,10 @@ class UpdateCategoryRequest extends FormRequest
                 $validator->errors()->add('parent_id', __('validation.custom.parent_id.not_self'));
             }
 
-            if ($parentId && $category->children()->exists()) {
-                $validator->errors()->add('parent_id', __('validation.custom.parent_id.has_children'));
+            // Reparenting under one of its own descendants would create a
+            // cycle — nesting itself is otherwise unbounded.
+            if ($parentId && in_array((int) $parentId, $category->descendantIds(), true)) {
+                $validator->errors()->add('parent_id', __('validation.custom.parent_id.descendant'));
             }
         });
     }

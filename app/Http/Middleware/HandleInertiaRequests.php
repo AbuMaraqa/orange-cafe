@@ -58,6 +58,7 @@ class HandleInertiaRequests extends Middleware
             'branding' => [
                 'name' => $branding->name,
                 'tagline' => $branding->tagline,
+                'address' => $branding->address,
                 'logo_url' => $branding->logo_path ? Storage::disk('public')->url($branding->logo_path) : null,
                 'cover_image_url' => $branding->cover_image_path ? Storage::disk('public')->url($branding->cover_image_path) : null,
                 'primary_color' => $branding->primary_color,

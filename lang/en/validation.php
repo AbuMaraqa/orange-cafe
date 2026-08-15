@@ -177,7 +177,7 @@ return [
     'custom' => [
         'parent_id' => [
             'not_self' => 'A category cannot be its own parent.',
-            'has_children' => 'This category has subcategories and cannot become a subcategory itself. Move or delete its subcategories first.',
+            'descendant' => 'A category cannot be moved under one of its own subcategories.',
         ],
     ],
 

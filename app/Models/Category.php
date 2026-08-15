@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class Category extends Model implements TranslatableContract
 {
@@ -16,7 +17,9 @@ class Category extends Model implements TranslatableContract
 
     public $translatedAttributes = ['name', 'description'];
 
-    protected $fillable = ['menu_id', 'parent_id', 'slug', 'station', 'is_active', 'sort_order'];
+    protected $fillable = ['menu_id', 'parent_id', 'slug', 'station', 'image_path', 'is_active', 'sort_order'];
+
+    protected $appends = ['image_url'];
 
     protected function casts(): array
     {
@@ -24,6 +27,13 @@ class Category extends Model implements TranslatableContract
             'is_active' => 'boolean',
             'sort_order' => 'integer',
         ];
+    }
+
+    protected function imageUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    {
+        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+            get: fn () => $this->image_path ? Storage::disk('public')->url($this->image_path) : null,
+        );
     }
 
     /**
@@ -69,5 +79,26 @@ class Category extends Model implements TranslatableContract
     public function isTopLevel(): bool
     {
         return $this->parent_id === null;
+    }
+
+    /**
+     * IDs of every descendant at any depth (children, grandchildren, ...).
+     * Categories nest to arbitrary depth via parent_id with no materialized
+     * path, so this walks the tree level by level — used to stop a
+     * category from being reparented under its own descendant, which
+     * would create a cycle.
+     */
+    public function descendantIds(): array
+    {
+        $ids = [];
+        $frontier = [$this->id];
+
+        while ($frontier !== []) {
+            $childIds = static::query()->whereIn('parent_id', $frontier)->pluck('id')->all();
+            $ids = [...$ids, ...$childIds];
+            $frontier = $childIds;
+        }
+
+        return $ids;
     }
 }

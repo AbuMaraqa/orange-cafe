@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Brand-color focus state, shared by every form field and focusable
+ * control across the app (inputs, textareas, buttons, links) — reads
+ * --brand-primary, which app.blade.php sets on <html> from the
+ * restaurant's Settings > primary_color, so it inherits everywhere
+ * without each component repeating the CSS variable inline.
+ */
+.focus-brand:focus {
+    border-color: var(--brand-primary);
+    --tw-ring-color: var(--brand-primary);
+}

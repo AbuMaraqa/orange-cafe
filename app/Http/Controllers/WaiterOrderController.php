@@ -5,9 +5,9 @@ namespace App\Http\Controllers;
 use App\Events\OrderStatusUpdated;
 use App\Http\Controllers\Concerns\BroadcastsSafely;
 use App\Http\Requests\AddOrderItemsRequest;
-use App\Jobs\PrintOrderTicket;
 use App\Models\Order;
 use App\Models\RestaurantTable;
+use App\Services\KitchenPrinterService;
 use App\Services\MenuCatalogPresenter;
 use App\Services\OrderItemWriter;
 use Illuminate\Http\Request;
@@ -69,7 +69,7 @@ class WaiterOrderController extends Controller
      * starting a separate one — e.g. the table orders dessert after their
      * mains arrived.
      */
-    public function addItems(AddOrderItemsRequest $request, Order $order, OrderItemWriter $writer): RedirectResponse
+    public function addItems(AddOrderItemsRequest $request, Order $order, OrderItemWriter $writer, KitchenPrinterService $printer): RedirectResponse
     {
         $data = $request->validated();
 
@@ -89,7 +89,7 @@ class WaiterOrderController extends Controller
         // Reprints the whole running ticket (not just what was just added) —
         // acceptable for now since kitchen staff already expect a fresh
         // ticket to represent the order's current full state.
-        PrintOrderTicket::dispatch($order);
+        $printer->queuePrintJobs($order);
 
         return to_route('waiter.index')->with('success', __('menu.order_placed'));
     }

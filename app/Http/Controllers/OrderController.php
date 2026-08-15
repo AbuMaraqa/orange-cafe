@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Events\OrderPlaced;
 use App\Http\Controllers\Concerns\BroadcastsSafely;
 use App\Http\Requests\StoreOrderRequest;
-use App\Jobs\PrintOrderTicket;
 use App\Models\Order;
+use App\Services\KitchenPrinterService;
 use App\Services\OrderItemWriter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -17,22 +17,27 @@ class OrderController extends Controller
 {
     use BroadcastsSafely;
 
-    public function __construct(protected OrderItemWriter $itemWriter)
+    public function __construct(protected OrderItemWriter $itemWriter, protected KitchenPrinterService $printer)
     {
     }
 
     public function store(StoreOrderRequest $request): RedirectResponse
     {
         $data = $request->validated();
+        // A waiter typing an order in themselves has already effectively
+        // reviewed it — it goes straight to the kitchen. A customer's own
+        // order (from the QR menu) stays "pending" and unprinted until a
+        // waiter reviews and confirms it (see StaffOrderController::confirm()).
+        $placedByStaff = $request->user()?->hasAnyRole(['waiter', 'admin']) ?? false;
 
-        $order = DB::transaction(function () use ($data, $request) {
+        $order = DB::transaction(function () use ($data, $request, $placedByStaff) {
             $order = Order::create([
                 'table_id' => $data['table_id'] ?? null,
                 'table_number' => $data['table_number'] ?? null,
                 'guest_count' => $data['guest_count'] ?? null,
                 'customer_name' => $data['customer_name'] ?? null,
                 'notes' => $data['notes'] ?? null,
-                'status' => config('orders.default_status'),
+                'status' => $placedByStaff ? 'confirmed' : config('orders.default_status'),
                 'locale' => app()->getLocale(),
                 'created_by' => $request->user()?->id,
                 'total_cents' => 0,
@@ -45,12 +50,13 @@ class OrderController extends Controller
         });
 
         $this->safeBroadcast(new OrderPlaced($order));
-        PrintOrderTicket::dispatch($order);
 
-        // A waiter placing an order on a customer's behalf wants to get
-        // straight back to the floor to keep working, not land on the
-        // customer-facing order-status page.
-        if ($request->user()?->hasAnyRole(['waiter', 'admin'])) {
+        if ($placedByStaff) {
+            $this->printer->queuePrintJobs($order);
+
+            // A waiter placing an order on a customer's behalf wants to get
+            // straight back to the floor to keep working, not land on the
+            // customer-facing order-status page.
             return to_route('waiter.index')->with('success', __('menu.order_placed'));
         }
 

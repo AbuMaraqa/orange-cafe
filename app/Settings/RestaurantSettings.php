@@ -41,6 +41,10 @@ class RestaurantSettings extends Settings
 
     public ?string $facebook;
 
+    public ?string $wifi_ssid;
+
+    public ?string $wifi_password;
+
     public static function group(): string
     {
         return 'restaurant';

@@ -19,7 +19,7 @@ class Product extends Model implements TranslatableContract
     // Deliberately no category_id/menu_id here — a product is a standalone
     // entity, attached to whichever menus/sections it belongs to via
     // menu_items (possibly several at once, each with its own price).
-    protected $fillable = ['slug', 'station', 'image_path', 'price_cents', 'is_active', 'sort_order'];
+    protected $fillable = ['slug', 'station', 'image_path', 'price_cents', 'prep_time_minutes', 'is_active', 'sort_order'];
 
     protected $appends = ['image_url'];
 
@@ -27,6 +27,7 @@ class Product extends Model implements TranslatableContract
     {
         return [
             'price_cents' => 'integer',
+            'prep_time_minutes' => 'integer',
             'is_active' => 'boolean',
             'sort_order' => 'integer',
         ];

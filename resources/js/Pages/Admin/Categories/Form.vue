@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Checkbox from '@/Components/Checkbox.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
@@ -22,6 +22,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    printerOptions: {
+        type: Array,
+        default: () => [],
+    },
     category: {
         type: Object,
         default: null,
@@ -39,12 +43,38 @@ const form = useForm({
     parent_id: props.category?.parent_id ?? null,
     slug: props.category?.slug ?? '',
     station: props.category?.station ?? '',
+    image: null,
     is_active: props.category?.is_active ?? true,
     sort_order: props.category?.sort_order ?? 0,
     translations: props.category?.translations ?? emptyTranslations,
 });
 
-const activeTab = ref(props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code);
+const imagePreview = ref(props.category?.image_url ?? null);
+
+function onImageChange(event) {
+    const file = event.target.files[0];
+    form.image = file ?? null;
+    imagePreview.value = file ? URL.createObjectURL(file) : (props.category?.image_url ?? null);
+}
+
+const defaultLocaleCode = props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code;
+const activeTab = ref(defaultLocaleCode);
+
+// Typing the name auto-fills the slug, so there's no separate field to
+// think about up front — stops the moment the admin edits the slug
+// themselves (an existing category's slug is also left alone, since it
+// may already be linked elsewhere).
+const slugEditedManually = ref(isEdit.value);
+
+watch(() => form.translations[defaultLocaleCode]?.name, (name) => {
+    if (!slugEditedManually.value && name) {
+        form.slug = name.trim().replace(/\s+/g, '-');
+    }
+});
+
+function onSlugInput() {
+    slugEditedManually.value = true;
+}
 
 function submit() {
     if (isEdit.value) {
@@ -69,7 +99,7 @@ function submit() {
                         v-if="!isEdit"
                         id="menu_id"
                         v-model.number="form.menu_id"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                     >
                         <option v-for="option in menuOptions" :key="option.id" :value="option.id">
                             {{ option.name }}
@@ -87,7 +117,7 @@ function submit() {
                     <select
                         id="parent_id"
                         v-model="form.parent_id"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                     >
                         <option :value="null">{{ $t('admin.categories.no_parent') }}</option>
                         <option v-for="option in parentOptions" :key="option.id" :value="option.id">
@@ -98,27 +128,16 @@ function submit() {
                 </div>
 
                 <div>
-                    <InputLabel for="slug" :value="$t('admin.categories.slug')" />
-                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" required autofocus />
-                    <InputError class="mt-2" :message="form.errors.slug" />
+                    <InputLabel :value="$t('admin.categories.image')" />
+                    <div class="mt-1 flex items-center gap-4">
+                        <div class="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                            <img v-if="imagePreview" :src="imagePreview" class="h-full w-full object-cover" />
+                        </div>
+                        <input type="file" accept="image/*" class="text-sm text-gray-600 dark:text-gray-400" @change="onImageChange" />
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.categories.image_hint') }}</p>
+                    <InputError class="mt-2" :message="form.errors.image" />
                 </div>
-
-                <div>
-                    <InputLabel for="station" :value="$t('admin.categories.station')" />
-                    <TextInput id="station" v-model="form.station" class="mt-1 block w-full" :placeholder="$t('admin.categories.station_placeholder')" />
-                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.categories.station_hint') }}</p>
-                    <InputError class="mt-2" :message="form.errors.station" />
-                </div>
-
-                <div>
-                    <InputLabel for="sort_order" :value="$t('admin.languages.sort_order')" />
-                    <TextInput id="sort_order" v-model.number="form.sort_order" type="number" class="mt-1 block w-full" />
-                </div>
-
-                <label class="flex items-center">
-                    <Checkbox v-model:checked="form.is_active" />
-                    <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('common.active') }}</span>
-                </label>
 
                 <div>
                     <InputLabel :value="$t('admin.categories.translations')" />
@@ -130,8 +149,9 @@ function submit() {
                             type="button"
                             class="border-b-2 px-3 py-2 text-sm font-medium"
                             :class="activeTab === language.code
-                                ? 'border-gray-900 text-gray-900 dark:border-gray-100 dark:text-gray-100'
+                                ? 'border-transparent'
                                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                            :style="activeTab === language.code ? { borderBottomColor: 'var(--brand-primary)', color: 'var(--brand-primary)' } : {}"
                             @click="activeTab = language.code"
                         >
                             {{ language.native_name }}
@@ -151,6 +171,7 @@ function submit() {
                                 v-model="form.translations[language.code].name"
                                 :dir="language.direction"
                                 class="mt-1 block w-full"
+                                :autofocus="language.code === defaultLocaleCode"
                             />
                             <InputError class="mt-2" :message="form.errors[`translations.${language.code}.name`]" />
                         </div>
@@ -161,11 +182,43 @@ function submit() {
                                 v-model="form.translations[language.code].description"
                                 :dir="language.direction"
                                 rows="3"
-                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                                class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                             ></textarea>
                         </div>
                     </div>
                 </div>
+
+                <div>
+                    <InputLabel for="slug" :value="$t('admin.categories.slug')" />
+                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" dir="ltr" required @input="onSlugInput" />
+                    <InputError class="mt-2" :message="form.errors.slug" />
+                </div>
+
+                <div>
+                    <InputLabel for="station" :value="$t('admin.categories.station')" />
+                    <select
+                        id="station"
+                        v-model="form.station"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                    >
+                        <option value="">{{ $t('admin.categories.no_station') }}</option>
+                        <option v-for="option in printerOptions" :key="option.station" :value="option.station">
+                            {{ option.name }}
+                        </option>
+                    </select>
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.categories.station_hint') }}</p>
+                    <InputError class="mt-2" :message="form.errors.station" />
+                </div>
+
+                <div>
+                    <InputLabel for="sort_order" :value="$t('admin.languages.sort_order')" />
+                    <TextInput id="sort_order" v-model.number="form.sort_order" type="number" class="mt-1 block w-full" />
+                </div>
+
+                <label class="flex items-center">
+                    <Checkbox v-model:checked="form.is_active" />
+                    <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('common.active') }}</span>
+                </label>
 
                 <div class="flex items-center justify-end gap-3 pt-2">
                     <Link :href="route('admin.categories.index')">

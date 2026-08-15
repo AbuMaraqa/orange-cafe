@@ -26,18 +26,28 @@ class LanguageRegistry
      */
     public function active(): Collection
     {
-        return Cache::rememberForever(self::CACHE_KEY, function () {
-            if (! Schema::hasTable('languages')) {
-                return collect();
-            }
+        if (! Schema::hasTable('cache')) {
+            return $this->fetchActive();
+        }
 
-            return Language::query()
-                ->where('is_active', true)
-                ->orderByDesc('is_default')
-                ->orderBy('sort_order')
-                ->orderBy('code')
-                ->get();
-        });
+        return Cache::rememberForever(self::CACHE_KEY, fn () => $this->fetchActive());
+    }
+
+    /**
+     * @return Collection<int, Language>
+     */
+    private function fetchActive(): Collection
+    {
+        if (! Schema::hasTable('languages')) {
+            return collect();
+        }
+
+        return Language::query()
+            ->where('is_active', true)
+            ->orderByDesc('is_default')
+            ->orderBy('sort_order')
+            ->orderBy('code')
+            ->get();
     }
 
     public function default(): ?Language

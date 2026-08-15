@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Service;
 use App\Models\Tag;
 use App\Services\MenuCatalogPresenter;
 use Inertia\Inertia;
@@ -28,6 +29,14 @@ class CustomerMenuController extends Controller
             'menus' => $presenter->visibleMenusPayload(),
             'tags' => Tag::query()->where('is_active', true)->orderBy('sort_order')->get()
                 ->map(fn (Tag $tag) => ['id' => $tag->id, 'name' => $tag->name, 'icon' => $tag->icon]),
+            'services' => Service::query()->where('is_active', true)->orderBy('sort_order')->get()
+                ->map(fn (Service $service) => [
+                    'id' => $service->id,
+                    'name' => $service->name,
+                    'icon' => $service->icon,
+                    'image_url' => $service->image_url,
+                    'color' => $service->displayColor(),
+                ]),
         ]);
     }
 }

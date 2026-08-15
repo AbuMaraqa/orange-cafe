@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StorePrinterRequest;
 use App\Http\Requests\Admin\UpdatePrinterRequest;
 use App\Models\Printer;
-use App\Services\KitchenPrinterService;
+use App\Services\Printing\PrinterTransport;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -51,16 +51,14 @@ class PrinterController extends Controller
         return to_route('admin.printers.index')->with('success', __('admin.printers.deleted'));
     }
 
-    public function test(Printer $printer, KitchenPrinterService $service): RedirectResponse
+    public function test(Printer $printer, PrinterTransport $transport): RedirectResponse
     {
-        $reachable = @fsockopen($printer->ip_address, $printer->port, $errno, $errstr, 3);
-
-        if ($reachable) {
-            fclose($reachable);
+        try {
+            $transport->probe($printer);
 
             return back()->with('success', __('admin.printers.test_ok'));
+        } catch (\Throwable $e) {
+            return back()->withErrors(['printer' => __('admin.printers.test_failed', ['error' => $e->getMessage()])]);
         }
-
-        return back()->withErrors(['printer' => __('admin.printers.test_failed', ['error' => $errstr])]);
     }
 }

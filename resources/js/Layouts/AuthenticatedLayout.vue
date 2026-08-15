@@ -32,6 +32,7 @@ const navGroups = computed(() => [
         title: t('nav.group_floor'),
         items: [
             { label: t('nav.orders'), icon: 'clipboardList', route: 'admin.orders.index', visible: isAdmin.value },
+            { label: t('nav.feedback'), icon: 'note', route: 'admin.feedback.index', visible: isAdmin.value },
             { label: t('nav.accounting'), icon: 'cash', route: 'admin.accounting.index', visible: isAdmin.value },
             { label: t('nav.tables'), icon: 'table', route: 'admin.tables.index', visible: isAdmin.value },
             { label: t('nav.waiter'), icon: 'users', route: 'waiter.index', visible: hasRole('waiter') },
@@ -47,6 +48,7 @@ const navGroups = computed(() => [
             { label: t('nav.products'), icon: 'tag', route: 'admin.products.index', visible: isAdmin.value },
             { label: t('nav.modifier_groups'), icon: 'sliders', route: 'admin.modifier-groups.index', visible: isAdmin.value },
             { label: t('nav.tags'), icon: 'tag', route: 'admin.tags.index', visible: isAdmin.value },
+            { label: t('nav.services'), icon: 'bell', route: 'admin.services.index', visible: isAdmin.value },
         ],
     },
     {
@@ -132,10 +134,11 @@ function isActive(routeName) {
                         class="mb-0.5 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors"
                         :class="[
                             isActive(item.route)
-                                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                                ? 'text-white'
                                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100',
                             collapsed ? 'justify-center' : '',
                         ]"
+                        :style="isActive(item.route) ? { backgroundColor: 'var(--brand-primary)' } : {}"
                         :title="collapsed ? item.label : null"
                     >
                         <NavIcon :name="item.icon" class="h-5 w-5 shrink-0" />

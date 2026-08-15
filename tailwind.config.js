@@ -12,6 +12,12 @@ export default {
         './storage/framework/views/*.php',
         './resources/views/**/*.blade.php',
         './resources/js/**/*.vue',
+        // Plain .js files (e.g. composables/useOrderStatus.js) build class
+        // strings dynamically too — without this glob Tailwind never scans
+        // them, so every class that only appears in one (status badge
+        // colors, for instance) silently never gets generated, even though
+        // the class name still ends up correctly in the rendered HTML.
+        './resources/js/**/*.js',
     ],
 
     theme: {

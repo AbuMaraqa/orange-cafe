@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class WaiterCall extends Model
 {
-    protected $fillable = ['table_id', 'table_number', 'status'];
+    protected $fillable = ['table_id', 'table_number', 'service_id', 'status'];
 
     protected function casts(): array
     {
@@ -22,13 +22,22 @@ class WaiterCall extends Model
         ];
     }
 
-    public function table(): BelongsTo
+    // Named restaurantTable() rather than table() — the latter collides
+    // with Eloquent's own protected Model::$table property (the DB table
+    // name), and $this->table from inside this class silently resolves to
+    // that string instead of the relation, breaking tableLabel() below.
+    public function restaurantTable(): BelongsTo
     {
         return $this->belongsTo(RestaurantTable::class, 'table_id');
     }
 
+    public function service(): BelongsTo
+    {
+        return $this->belongsTo(Service::class);
+    }
+
     public function tableLabel(): ?string
     {
-        return $this->table?->label ?? $this->table_number;
+        return $this->restaurantTable?->label ?? $this->table_number;
     }
 }

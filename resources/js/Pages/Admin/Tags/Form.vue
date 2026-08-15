@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Checkbox from '@/Components/Checkbox.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
@@ -32,7 +32,24 @@ const form = useForm({
     translations: props.tag?.translations ?? emptyTranslations,
 });
 
-const activeTab = ref(props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code);
+const defaultLocaleCode = props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code;
+const activeTab = ref(defaultLocaleCode);
+
+// Typing the name auto-fills the slug, so there's no separate field to
+// think about up front — stops the moment the admin edits the slug
+// themselves (an existing tag's slug is also left alone, since it may
+// already be linked elsewhere).
+const slugEditedManually = ref(isEdit.value);
+
+watch(() => form.translations[defaultLocaleCode]?.name, (name) => {
+    if (!slugEditedManually.value && name) {
+        form.slug = name.trim().replace(/\s+/g, '-');
+    }
+});
+
+function onSlugInput() {
+    slugEditedManually.value = true;
+}
 
 function submit() {
     if (isEdit.value) {
@@ -59,17 +76,6 @@ function submit() {
                 </div>
 
                 <div>
-                    <InputLabel for="slug" :value="$t('admin.categories.slug')" />
-                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" required autofocus />
-                    <InputError class="mt-2" :message="form.errors.slug" />
-                </div>
-
-                <label class="flex items-center">
-                    <Checkbox v-model:checked="form.is_active" />
-                    <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('common.active') }}</span>
-                </label>
-
-                <div>
                     <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
                         <button
                             v-for="language in languages"
@@ -77,8 +83,9 @@ function submit() {
                             type="button"
                             class="border-b-2 px-3 py-2 text-sm font-medium"
                             :class="activeTab === language.code
-                                ? 'border-gray-900 text-gray-900 dark:border-gray-100 dark:text-gray-100'
+                                ? 'border-transparent'
                                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                            :style="activeTab === language.code ? { borderBottomColor: 'var(--brand-primary)', color: 'var(--brand-primary)' } : {}"
                             @click="activeTab = language.code"
                         >
                             {{ language.native_name }}
@@ -91,10 +98,22 @@ function submit() {
                             v-model="form.translations[language.code].name"
                             :dir="language.direction"
                             class="mt-1 block w-full"
+                            :autofocus="language.code === defaultLocaleCode"
                         />
                         <InputError class="mt-2" :message="form.errors[`translations.${language.code}.name`]" />
                     </div>
                 </div>
+
+                <div>
+                    <InputLabel for="slug" :value="$t('admin.categories.slug')" />
+                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" required dir="ltr" @input="onSlugInput" />
+                    <InputError class="mt-2" :message="form.errors.slug" />
+                </div>
+
+                <label class="flex items-center">
+                    <Checkbox v-model:checked="form.is_active" />
+                    <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('common.active') }}</span>
+                </label>
 
                 <div class="flex items-center justify-end gap-3 pt-2">
                     <Link :href="route('admin.tags.index')">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Admin\Concerns\FillsMissingTranslations;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreTagRequest;
 use App\Http\Requests\Admin\UpdateTagRequest;
@@ -13,6 +14,8 @@ use Inertia\Response;
 
 class TagController extends Controller
 {
+    use FillsMissingTranslations;
+
     public function __construct(protected LanguageRegistry $registry)
     {
     }
@@ -38,7 +41,7 @@ class TagController extends Controller
     public function store(StoreTagRequest $request): RedirectResponse
     {
         $data = $request->validated();
-        $translations = $data['translations'];
+        $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         unset($data['translations']);
 
         Tag::create([...$data, ...$translations]);
@@ -59,7 +62,7 @@ class TagController extends Controller
     public function update(UpdateTagRequest $request, Tag $tag): RedirectResponse
     {
         $data = $request->validated();
-        $translations = $data['translations'];
+        $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         unset($data['translations']);
 
         $tag->update([...$data, ...$translations]);

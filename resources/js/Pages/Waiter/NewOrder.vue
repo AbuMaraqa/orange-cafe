@@ -179,8 +179,9 @@ function submit() {
                         type="button"
                         class="shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium"
                         :class="activeMenuId === menu.id
-                            ? 'border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900'
+                            ? 'border-transparent text-white'
                             : 'border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300'"
+                        :style="activeMenuId === menu.id ? { backgroundColor: 'var(--brand-primary)' } : {}"
                         @click="activeMenuId = menu.id"
                     >
                         {{ menu.name }}
@@ -199,8 +200,9 @@ function submit() {
                             type="button"
                             class="shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium"
                             :class="activeCategory === 'all'
-                                ? 'border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900'
+                                ? 'border-transparent text-white'
                                 : 'border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300'"
+                            :style="activeCategory === 'all' ? { backgroundColor: 'var(--brand-primary)' } : {}"
                             @click="activeCategory = 'all'"
                         >
                             {{ $t('menu.all_categories') }}
@@ -211,8 +213,9 @@ function submit() {
                             type="button"
                             class="shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium"
                             :class="activeCategory === category.id
-                                ? 'border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900'
+                                ? 'border-transparent text-white'
                                 : 'border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300'"
+                            :style="activeCategory === category.id ? { backgroundColor: 'var(--brand-primary)' } : {}"
                             @click="activeCategory = category.id"
                         >
                             {{ category.name }}
@@ -283,10 +286,10 @@ function submit() {
                             </div>
                             <template v-else>
                                 <div class="flex gap-2 text-xs">
-                                    <button type="button" class="rounded-md px-2 py-1" :class="useTableSelect ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : 'bg-gray-100 text-gray-500 dark:bg-gray-800'" @click="useTableSelect = true">
+                                    <button type="button" class="rounded-md px-2 py-1" :class="useTableSelect ? 'text-white' : 'bg-gray-100 text-gray-500 dark:bg-gray-800'" :style="useTableSelect ? { backgroundColor: 'var(--brand-primary)' } : {}" @click="useTableSelect = true">
                                         {{ $t('tables.title') }}
                                     </button>
-                                    <button type="button" class="rounded-md px-2 py-1" :class="!useTableSelect ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : 'bg-gray-100 text-gray-500 dark:bg-gray-800'" @click="useTableSelect = false">
+                                    <button type="button" class="rounded-md px-2 py-1" :class="!useTableSelect ? 'text-white' : 'bg-gray-100 text-gray-500 dark:bg-gray-800'" :style="!useTableSelect ? { backgroundColor: 'var(--brand-primary)' } : {}" @click="useTableSelect = false">
                                         {{ $t('menu.table_number') }}
                                     </button>
                                 </div>

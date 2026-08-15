@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Checkbox from '@/Components/Checkbox.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
@@ -22,6 +22,14 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    categories: {
+        type: Array,
+        default: () => [],
+    },
+    printerOptions: {
+        type: Array,
+        default: () => [],
+    },
     product: {
         type: Object,
         default: null,
@@ -39,6 +47,8 @@ const form = useForm({
     station: props.product?.station ?? '',
     image: null,
     price_cents: props.product?.price_cents ?? 0,
+    prep_time_minutes: props.product?.prep_time_minutes ?? '',
+    category_ids: [],
     is_active: props.product?.is_active ?? true,
     sort_order: props.product?.sort_order ?? 0,
     modifier_group_ids: props.product?.modifier_group_ids ?? [],
@@ -46,8 +56,50 @@ const form = useForm({
     translations: props.product?.translations ?? emptyTranslations,
 });
 
+// The form field itself stays in cents (what the backend expects) — this
+// just converts what the admin types/sees to and from whole currency
+// units, the same way Menu Builder's price override field does.
+const priceDisplay = computed({
+    get: () => (form.price_cents / 100).toFixed(2),
+    set: (value) => {
+        const cents = Math.round(Number(value) * 100);
+        form.price_cents = Number.isFinite(cents) ? cents : 0;
+    },
+});
+
 const imagePreview = ref(props.product?.image_url ?? null);
-const activeTab = ref(props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code);
+
+// Categories the product is already placed in — shown read-only here since
+// removing a placement can drop per-category customization (price
+// override, sort order, featured flag) that only Menu Builder shows.
+// Checking a box below only ever adds a new placement, so the checklist
+// itself excludes categories the product is already in.
+const assignedCategories = computed(() => {
+    const ids = new Set(props.product?.category_ids ?? []);
+    return props.categories.filter((category) => ids.has(category.id));
+});
+const availableCategories = computed(() => {
+    const ids = new Set(props.product?.category_ids ?? []);
+    return props.categories.filter((category) => !ids.has(category.id));
+});
+const defaultLocaleCode = props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code;
+const activeTab = ref(defaultLocaleCode);
+
+// Typing the name auto-fills the slug, so there's no separate field to
+// think about up front — stops the moment the admin edits the slug
+// themselves (an existing product's slug is also left alone, since it
+// may already be linked elsewhere).
+const slugEditedManually = ref(isEdit.value);
+
+watch(() => form.translations[defaultLocaleCode]?.name, (name) => {
+    if (!slugEditedManually.value && name) {
+        form.slug = name.trim().replace(/\s+/g, '-');
+    }
+});
+
+function onSlugInput() {
+    slugEditedManually.value = true;
+}
 
 function onImageChange(event) {
     const file = event.target.files[0];
@@ -97,21 +149,125 @@ function submit() {
                 </div>
 
                 <div>
+                    <InputLabel :value="$t('admin.categories.translations')" />
+
+                    <div class="mt-2 flex gap-1 border-b border-gray-200 dark:border-gray-700">
+                        <button
+                            v-for="language in languages"
+                            :key="language.code"
+                            type="button"
+                            class="border-b-2 px-3 py-2 text-sm font-medium"
+                            :class="activeTab === language.code
+                                ? 'border-transparent'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                            :style="activeTab === language.code ? { borderBottomColor: 'var(--brand-primary)', color: 'var(--brand-primary)' } : {}"
+                            @click="activeTab = language.code"
+                        >
+                            {{ language.native_name }}
+                            <span
+                                v-if="!form.translations[language.code]?.name"
+                                class="ms-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500"
+                                :title="$t('admin.products.missing_translations')"
+                            ></span>
+                        </button>
+                    </div>
+
+                    <div v-for="language in languages" :key="language.code" v-show="activeTab === language.code" class="mt-4 space-y-4">
+                        <div>
+                            <InputLabel :for="`name-${language.code}`" :value="`${$t('admin.categories.name_in')} ${language.native_name}`" />
+                            <TextInput
+                                :id="`name-${language.code}`"
+                                v-model="form.translations[language.code].name"
+                                :dir="language.direction"
+                                class="mt-1 block w-full"
+                                :autofocus="language.code === defaultLocaleCode"
+                            />
+                            <InputError class="mt-2" :message="form.errors[`translations.${language.code}.name`]" />
+                        </div>
+                        <div>
+                            <InputLabel :for="`description-${language.code}`" :value="`${$t('admin.categories.description_in')} ${language.native_name}`" />
+                            <textarea
+                                :id="`description-${language.code}`"
+                                v-model="form.translations[language.code].description"
+                                :dir="language.direction"
+                                rows="3"
+                                class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                            ></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
                     <InputLabel for="slug" :value="$t('admin.products.slug')" />
-                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" required />
+                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" dir="ltr" required @input="onSlugInput" />
                     <InputError class="mt-2" :message="form.errors.slug" />
                 </div>
 
                 <div>
                     <InputLabel for="price_cents" :value="$t('common.price')" />
-                    <TextInput id="price_cents" v-model.number="form.price_cents" type="number" min="0" class="mt-1 block w-full" />
-                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.price_placeholder') }}</p>
+                    <TextInput id="price_cents" v-model="priceDisplay" type="number" min="0" step="0.01" class="mt-1 block w-full" />
                     <InputError class="mt-2" :message="form.errors.price_cents" />
                 </div>
 
                 <div>
+                    <InputLabel for="prep_time_minutes" :value="$t('admin.products.prep_time')" />
+                    <TextInput
+                        id="prep_time_minutes"
+                        v-model.number="form.prep_time_minutes"
+                        type="number"
+                        min="0"
+                        max="600"
+                        class="mt-1 block w-32"
+                        :placeholder="$t('admin.products.prep_time_placeholder')"
+                    />
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.prep_time_hint') }}</p>
+                    <InputError class="mt-2" :message="form.errors.prep_time_minutes" />
+                </div>
+
+                <div v-if="assignedCategories.length > 0 || availableCategories.length > 0">
+                    <InputLabel :value="$t('admin.products.category')" />
+
+                    <div v-if="assignedCategories.length > 0" class="mt-1 flex flex-wrap gap-1.5">
+                        <span
+                            v-for="category in assignedCategories"
+                            :key="category.id"
+                            class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                        >
+                            {{ category.name }}
+                        </span>
+                    </div>
+
+                    <div v-if="availableCategories.length > 0" class="mt-2 flex flex-wrap gap-2">
+                        <label
+                            v-for="category in availableCategories"
+                            :key="category.id"
+                            class="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm dark:border-gray-700"
+                        >
+                            <Checkbox :checked="form.category_ids.includes(category.id)" @update:checked="(checked) => {
+                                form.category_ids = checked
+                                    ? [...form.category_ids, category.id]
+                                    : form.category_ids.filter((id) => id !== category.id);
+                            }" />
+                            {{ category.name }}
+                        </label>
+                    </div>
+
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.category_hint') }}</p>
+                    <InputError class="mt-2" :message="form.errors.category_ids" />
+                </div>
+
+                <div>
                     <InputLabel for="station" :value="$t('admin.categories.station')" />
-                    <TextInput id="station" v-model="form.station" class="mt-1 block w-full" :placeholder="$t('admin.products.station_placeholder')" />
+                    <select
+                        id="station"
+                        v-model="form.station"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                    >
+                        <option value="">{{ $t('admin.categories.no_station') }}</option>
+                        <option v-for="option in printerOptions" :key="option.station" :value="option.station">
+                            {{ option.name }}
+                        </option>
+                    </select>
                     <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.station_hint') }}</p>
                     <InputError class="mt-2" :message="form.errors.station" />
                 </div>
@@ -159,53 +315,6 @@ function submit() {
                             }" />
                             <span>{{ tag.icon }} {{ tag.name }}</span>
                         </label>
-                    </div>
-                </div>
-
-                <div>
-                    <InputLabel :value="$t('admin.categories.translations')" />
-
-                    <div class="mt-2 flex gap-1 border-b border-gray-200 dark:border-gray-700">
-                        <button
-                            v-for="language in languages"
-                            :key="language.code"
-                            type="button"
-                            class="border-b-2 px-3 py-2 text-sm font-medium"
-                            :class="activeTab === language.code
-                                ? 'border-gray-900 text-gray-900 dark:border-gray-100 dark:text-gray-100'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
-                            @click="activeTab = language.code"
-                        >
-                            {{ language.native_name }}
-                            <span
-                                v-if="!form.translations[language.code]?.name"
-                                class="ms-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500"
-                                :title="$t('admin.products.missing_translations')"
-                            ></span>
-                        </button>
-                    </div>
-
-                    <div v-for="language in languages" :key="language.code" v-show="activeTab === language.code" class="mt-4 space-y-4">
-                        <div>
-                            <InputLabel :for="`name-${language.code}`" :value="`${$t('admin.categories.name_in')} ${language.native_name}`" />
-                            <TextInput
-                                :id="`name-${language.code}`"
-                                v-model="form.translations[language.code].name"
-                                :dir="language.direction"
-                                class="mt-1 block w-full"
-                            />
-                            <InputError class="mt-2" :message="form.errors[`translations.${language.code}.name`]" />
-                        </div>
-                        <div>
-                            <InputLabel :for="`description-${language.code}`" :value="`${$t('admin.categories.description_in')} ${language.native_name}`" />
-                            <textarea
-                                :id="`description-${language.code}`"
-                                v-model="form.translations[language.code].description"
-                                :dir="language.direction"
-                                rows="3"
-                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                            ></textarea>
-                        </div>
                     </div>
                 </div>
 

@@ -28,6 +28,8 @@ class UpdateRestaurantSettingRequest extends FormRequest
             'whatsapp' => ['nullable', 'string', 'max:30'],
             'instagram' => ['nullable', 'string', 'max:255'],
             'facebook' => ['nullable', 'string', 'max:255'],
+            'wifi_ssid' => ['nullable', 'string', 'max:255'],
+            'wifi_password' => ['nullable', 'string', 'max:255'],
         ];
     }
 }

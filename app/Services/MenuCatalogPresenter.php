@@ -66,10 +66,12 @@ class MenuCatalogPresenter
             'id' => $category->id,
             'name' => $category->name,
             'description' => $category->description,
+            'image_url' => $category->image_url,
             'subcategories' => $category->children->map(fn (Category $child) => [
                 'id' => $child->id,
                 'name' => $child->name,
                 'description' => $child->description,
+                'image_url' => $child->image_url,
                 'products' => $child->menuItems
                     ->filter(fn (MenuItem $item) => $item->product !== null)
                     ->map(fn (MenuItem $item) => $this->presentMenuItem($item))
@@ -95,6 +97,7 @@ class MenuCatalogPresenter
             'description' => $product->description,
             'price_cents' => $item->effectivePriceCents(),
             'is_featured' => $item->is_featured,
+            'prep_time_minutes' => $product->prep_time_minutes,
             'image_url' => $product->image_url,
             'tags' => $product->tags->map(fn (Tag $tag) => ['id' => $tag->id, 'name' => $tag->name, 'icon' => $tag->icon]),
             'modifier_groups' => $product->modifierGroups->map(fn (ModifierGroup $group) => [

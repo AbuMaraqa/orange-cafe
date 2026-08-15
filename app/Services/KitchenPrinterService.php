@@ -2,91 +2,85 @@
 
 namespace App\Services;
 
+use App\Jobs\PrintOrderTicket;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Printer;
+use App\Services\Printing\Concerns\SkipsAlreadyQueuedPrints;
+use App\Services\Printing\EscPosImageRenderer;
+use App\Services\Printing\PrinterTransport;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Routes an order's items to the kitchen printer(s) responsible for their
- * station and sends an ESC/POS ticket over a raw TCP socket — the standard
- * protocol spoken by network kitchen/receipt printers (Epson, Star, etc.
- * listening on port 9100). Nothing here is simulated: against a real
- * network printer at the configured IP this prints an actual ticket. There
- * is no physical printer in this environment to verify output against, so
- * every printer round-trip is wrapped and logged rather than allowed to
- * fail the request.
+ * station and sends an ESC/POS ticket — image-based (see
+ * EscPosImageRenderer) so Arabic item names render correctly, delivered
+ * over whichever transport that printer uses (see PrinterTransport).
+ *
+ * One PrintOrderTicket job is queued per (order, printer) pair rather than
+ * one job for the whole order — if a grill printer is unreachable while
+ * the kitchen and bar printers succeed, only the grill printer's job
+ * retries. A single shared job would otherwise re-run printOrder() for
+ * the entire order on every retry, re-sending duplicate tickets to the
+ * stations that already succeeded, every 30s, for up to a day.
  */
 class KitchenPrinterService
 {
-    private const ESC = "\x1B";
-    private const GS = "\x1D";
+    use SkipsAlreadyQueuedPrints;
 
-    public function printOrder(Order $order): void
+    public function __construct(
+        private EscPosImageRenderer $renderer,
+        private PrinterTransport $transport,
+    ) {
+    }
+
+    public function queuePrintJobs(Order $order): void
     {
-        $order->loadMissing('items.modifiers', 'table');
+        $order->loadMissing('items');
 
-        $itemsByStation = $order->items->groupBy(fn (OrderItem $item) => $item->station ?? 'default');
+        $stations = $order->items
+            ->map(fn (OrderItem $item) => $item->station ?? 'default')
+            ->unique();
 
-        foreach ($itemsByStation as $station => $items) {
+        foreach ($stations as $station) {
             $printers = Printer::query()->where('station', $station)->where('is_active', true)->get();
 
+            if ($printers->isEmpty()) {
+                Log::warning("No active printer configured for station '{$station}' — order {$order->reference} won't print there.");
+
+                continue;
+            }
+
             foreach ($printers as $printer) {
-                $this->sendToPrinter($printer, $order, $items);
+                if ($this->hasPendingJob(PrintOrderTicket::class, $order->id, $printer->id)) {
+                    continue;
+                }
+
+                PrintOrderTicket::dispatch($order, $printer, $station);
             }
         }
     }
 
-    protected function sendToPrinter(Printer $printer, Order $order, Collection $items): void
+    public function printToStation(Order $order, Printer $printer, string $station): bool
     {
-        $socket = @fsockopen($printer->ip_address, $printer->port, $errno, $errstr, 3);
+        $order->loadMissing('items.modifiers', 'table');
 
-        if (! $socket) {
-            Log::warning("Kitchen printer unreachable: {$printer->name} ({$printer->ip_address}:{$printer->port}) — {$errstr}");
+        $items = $order->items->filter(fn (OrderItem $item) => ($item->station ?? 'default') === $station);
 
-            return;
+        if ($items->isEmpty()) {
+            return true;
         }
 
-        try {
-            fwrite($socket, $this->buildTicket($order, $items));
-        } finally {
-            fclose($socket);
-        }
+        return $this->transport->send($printer, $this->buildTicket($order, $items));
     }
 
     protected function buildTicket(Order $order, Collection $items): string
     {
-        $boldOn = self::ESC.'E'."\x01";
-        $boldOff = self::ESC.'E'."\x00";
-        $doubleHeight = self::GS.'!'."\x11";
-        $normalSize = self::GS.'!'."\x00";
-        $cut = "\n\n\n".self::GS.'V'."\x41\x03";
-
-        $lines = [
-            self::ESC.'@', // initialize printer
-            $boldOn.$doubleHeight."ORDER {$order->reference}".$normalSize.$boldOff,
-            'Table: '.($order->table?->label ?? $order->table_number ?? '-'),
-            $order->guest_count ? "Guests: {$order->guest_count}" : null,
-            str_repeat('-', 32),
-        ];
-
-        foreach ($items as $item) {
-            $lines[] = $boldOn."{$item->quantity} x {$item->product_name}".$boldOff;
-
-            foreach ($item->modifiers as $modifier) {
-                $lines[] = "   + {$modifier->modifier_name}";
-            }
-
-            if ($item->notes) {
-                $lines[] = "   note: {$item->notes}";
-            }
-        }
-
-        $lines[] = str_repeat('-', 32);
-        $lines[] = now()->format('Y-m-d H:i');
-        $lines[] = $cut;
-
-        return implode("\n", array_filter($lines, fn ($line) => $line !== null));
+        return $this->renderer->render('pdf.kitchen-ticket', [
+            'order' => $order,
+            'items' => $items,
+            'labels' => __('pdf'),
+        ], 'rtl', max(60, 40 + $items->count() * 16));
     }
 }

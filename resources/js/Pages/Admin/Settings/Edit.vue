@@ -29,6 +29,8 @@ const form = useForm({
     whatsapp: props.setting.whatsapp ?? '',
     instagram: props.setting.instagram ?? '',
     facebook: props.setting.facebook ?? '',
+    wifi_ssid: props.setting.wifi_ssid ?? '',
+    wifi_password: props.setting.wifi_password ?? '',
 });
 
 const logoPreview = ref(props.setting.logo_url);
@@ -124,7 +126,7 @@ function submit() {
                     <select
                         id="font_family"
                         v-model="form.font_family"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                     >
                         <option value="tajawal">Tajawal</option>
                         <option value="almarai">Almarai</option>
@@ -151,21 +153,38 @@ function submit() {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <InputLabel for="phone" :value="$t('admin.languages.phone')" />
-                        <TextInput id="phone" v-model="form.phone" class="mt-1 block w-full" dir="ltr" />
+                        <TextInput id="phone" v-model="form.phone" class="mt-1 block w-full" dir="ltr" placeholder="+970 59 000 0000" />
                     </div>
                     <div>
                         <InputLabel for="whatsapp" value="WhatsApp" />
-                        <TextInput id="whatsapp" v-model="form.whatsapp" class="mt-1 block w-full" dir="ltr" />
+                        <TextInput id="whatsapp" v-model="form.whatsapp" class="mt-1 block w-full" dir="ltr" placeholder="+970590000000" />
                     </div>
                     <div>
                         <InputLabel for="instagram" value="Instagram" />
-                        <TextInput id="instagram" v-model="form.instagram" class="mt-1 block w-full" dir="ltr" />
+                        <TextInput id="instagram" v-model="form.instagram" class="mt-1 block w-full" dir="ltr" placeholder="username" />
                     </div>
                     <div>
                         <InputLabel for="facebook" value="Facebook" />
-                        <TextInput id="facebook" v-model="form.facebook" class="mt-1 block w-full" dir="ltr" />
+                        <TextInput id="facebook" v-model="form.facebook" class="mt-1 block w-full" dir="ltr" placeholder="username" />
                     </div>
                 </div>
+                <p class="mt-3 text-xs text-gray-400">{{ $t('settings.contact_hint') }}</p>
+            </section>
+
+            <section class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+                <h3 class="mb-4 font-medium text-gray-900 dark:text-gray-100">{{ $t('settings.wifi') }}</h3>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <InputLabel for="wifi_ssid" :value="$t('settings.wifi_ssid')" />
+                        <TextInput id="wifi_ssid" v-model="form.wifi_ssid" class="mt-1 block w-full" dir="ltr" />
+                    </div>
+                    <div>
+                        <InputLabel for="wifi_password" :value="$t('settings.wifi_password')" />
+                        <TextInput id="wifi_password" v-model="form.wifi_password" class="mt-1 block w-full" dir="ltr" />
+                    </div>
+                </div>
+                <p class="mt-3 text-xs text-gray-400">{{ $t('settings.wifi_hint') }}</p>
             </section>
 
             <div class="flex justify-end">

@@ -11,6 +11,7 @@ return [
     // when languages are added/removed from the admin panel.
     'supportedLocales' => [
         'ar' => ['name' => 'Arabic', 'script' => 'Arab', 'native' => 'العربية', 'regional' => '', 'dir' => 'rtl'],
+        'en' => ['name' => 'English', 'script' => 'Latn', 'native' => 'English', 'regional' => '', 'dir' => 'ltr'],
     ],
 
     // Requires middleware `LocaleSessionRedirect`.

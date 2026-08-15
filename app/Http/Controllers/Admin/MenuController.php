@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\MenuPublishStatus;
+use App\Http\Controllers\Admin\Concerns\FillsMissingTranslations;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreMenuRequest;
 use App\Http\Requests\Admin\UpdateMenuRequest;
@@ -14,6 +15,8 @@ use Inertia\Response;
 
 class MenuController extends Controller
 {
+    use FillsMissingTranslations;
+
     public function __construct(protected LanguageRegistry $registry)
     {
     }
@@ -44,7 +47,7 @@ class MenuController extends Controller
     public function store(StoreMenuRequest $request): RedirectResponse
     {
         $data = $request->validated();
-        $translations = $data['translations'];
+        $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         unset($data['translations']);
 
         $menu = Menu::create([...$data, ...$translations]);
@@ -66,7 +69,7 @@ class MenuController extends Controller
     public function update(UpdateMenuRequest $request, Menu $menu): RedirectResponse
     {
         $data = $request->validated();
-        $translations = $data['translations'];
+        $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         unset($data['translations']);
 
         $menu->update([...$data, ...$translations]);

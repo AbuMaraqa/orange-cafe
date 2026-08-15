@@ -1,7 +1,7 @@
 <script setup>
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 
 defineProps({
@@ -16,6 +16,7 @@ defineProps({
 });
 
 const { t } = useI18n();
+const page = usePage();
 
 function destroy(product) {
     if (confirm(`${product.name}: ` + t('common.are_you_sure'))) {
@@ -62,6 +63,12 @@ function formatPrice(cents) {
                             <div class="flex items-center gap-3">
                                 <div class="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-gray-100 dark:bg-gray-800">
                                     <img v-if="product.image_url" :src="product.image_url" class="h-full w-full object-cover" :alt="product.name" />
+                                    <img
+                                        v-else-if="page.props.branding.logo_url"
+                                        :src="page.props.branding.logo_url"
+                                        class="h-full w-full object-contain p-1 opacity-70"
+                                        :alt="product.name"
+                                    />
                                 </div>
                                 <div>
                                     <div class="font-medium text-gray-900 dark:text-gray-100">{{ product.name }}</div>

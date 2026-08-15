@@ -74,8 +74,9 @@ function submit() {
                         type="button"
                         class="border-b-2 px-3 py-2 text-sm font-medium"
                         :class="activeTab === language.code
-                            ? 'border-gray-900 text-gray-900 dark:border-gray-100 dark:text-gray-100'
+                            ? 'border-transparent'
                             : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                        :style="activeTab === language.code ? { borderBottomColor: 'var(--brand-primary)', color: 'var(--brand-primary)' } : {}"
                         @click="activeTab = language.code"
                     >
                         {{ language.native_name }}
@@ -141,7 +142,14 @@ function submit() {
                                 <InputError class="mt-1" :message="form.errors[`modifiers.${index}.translations.${activeTab}.name`]" />
                             </div>
                             <div class="w-28">
-                                <TextInput v-model.number="modifier.price_cents" type="number" class="block w-full" :placeholder="$t('common.price')" />
+                                <TextInput
+                                    :model-value="(modifier.price_cents / 100).toFixed(2)"
+                                    type="number"
+                                    step="0.01"
+                                    class="block w-full"
+                                    :placeholder="$t('common.price')"
+                                    @update:model-value="(value) => { modifier.price_cents = Math.round(Number(value) * 100) || 0; }"
+                                />
                             </div>
                             <label class="flex items-center pt-2">
                                 <Checkbox v-model:checked="modifier.is_active" />
