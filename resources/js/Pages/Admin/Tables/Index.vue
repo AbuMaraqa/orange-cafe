@@ -81,23 +81,47 @@ function selectTable(table) {
 }
 
 function startDrag(table, event) {
+    // A stray second pointerdown while a drag is already tracked (e.g. a
+    // trackpad/touch quirk re-firing before the previous gesture's
+    // pointerup) must never stack a second set of window listeners on top
+    // of the first — that's what was causing a table to keep sliding and
+    // re-firing the position PATCH after the finger/mouse was already
+    // released, since two independent listener sets kept driving it.
+    if (draggingId.value !== null) return;
+
     draggingId.value = table.id;
     dragMoved = false;
     event.preventDefault();
 
+    // Pointer capture ties every subsequent move/up event for this
+    // gesture to the element that started it, regardless of what the
+    // pointer ends up over — without it, moving fast enough to leave the
+    // table (or the canvas) can cause the browser to lose track of the
+    // gesture and never deliver a pointerup at all.
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+
     const onMove = (moveEvent) => {
+        if (moveEvent.pointerId !== event.pointerId) return;
+
         const rect = canvas.value.getBoundingClientRect();
-        const point = moveEvent.touches ? moveEvent.touches[0] : moveEvent;
-        const x = Math.min(100, Math.max(0, ((point.clientX - rect.left) / rect.width) * 100));
-        const y = Math.min(100, Math.max(0, ((point.clientY - rect.top) / rect.height) * 100));
+        const x = Math.min(100, Math.max(0, ((moveEvent.clientX - rect.left) / rect.width) * 100));
+        const y = Math.min(100, Math.max(0, ((moveEvent.clientY - rect.top) / rect.height) * 100));
         dragMoved = true;
         table.pos_x = x;
         table.pos_y = y;
     };
 
-    const onUp = () => {
+    // pointercancel (not just pointerup) must also end the gesture and
+    // clean up — the browser fires this instead of pointerup when it
+    // takes over the gesture itself (e.g. a scroll/refresh gesture on
+    // touch), and skipping it here was exactly how listeners were left
+    // dangling for the next drag to stack on top of.
+    const endDrag = (endEvent) => {
+        if (endEvent.pointerId !== event.pointerId) return;
+
         window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointerup', endDrag);
+        window.removeEventListener('pointercancel', endDrag);
         draggingId.value = null;
 
         if (dragMoved) {
@@ -106,7 +130,8 @@ function startDrag(table, event) {
     };
 
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
 }
 
 function submitCreate() {
