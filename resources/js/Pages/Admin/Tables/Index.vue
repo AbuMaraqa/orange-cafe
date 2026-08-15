@@ -181,10 +181,10 @@ function formatPrice(cents) {
             </div>
         </div>
 
-        <div class="flex gap-6">
+        <div class="flex flex-col gap-6 lg:flex-row">
             <div
                 ref="canvas"
-                class="relative h-[32rem] flex-1 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/50"
+                class="relative h-[32rem] min-w-0 flex-1 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/50"
             >
                 <div
                     v-for="table in tables"
@@ -219,8 +219,12 @@ function formatPrice(cents) {
                 </div>
             </div>
 
-            <!-- Detail / edit panel -->
-            <div v-if="selected" class="w-80 shrink-0 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+            <!-- Detail / edit panel: full width when stacked under the floor
+                 plan on a narrow window (e.g. a PWA window resized small —
+                 the old fixed w-80 sidebar had nowhere to go and could end
+                 up squeezed out of view with no way to reach it), a fixed
+                 sidebar once there's room to sit beside the canvas. -->
+            <div v-if="selected" class="w-full shrink-0 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900 lg:w-80">
                 <div class="mb-4 flex items-center justify-between">
                     <h3 class="font-semibold text-gray-900 dark:text-gray-100">{{ selected.label }}</h3>
                     <div class="flex items-center gap-2">
