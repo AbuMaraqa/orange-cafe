@@ -26,6 +26,7 @@ class ModifierGroupController extends Controller
     {
         $groups = ModifierGroup::query()
             ->with('translations', 'modifiers.translations')
+            ->withCount('products')
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -138,6 +139,7 @@ class ModifierGroupController extends Controller
             'is_active' => $group->is_active,
             'sort_order' => $group->sort_order,
             'modifiers_count' => $group->modifiers->count(),
+            'products_count' => $group->products_count ?? $group->products()->count(),
             'missing_locales' => array_values(array_diff($activeCodes, $group->translations->pluck('locale')->all())),
         ];
 

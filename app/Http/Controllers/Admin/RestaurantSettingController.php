@@ -4,11 +4,15 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpdateRestaurantSettingRequest;
+use App\Services\PdfService;
+use App\Services\WifiQrCode;
 use App\Settings\RestaurantSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Mpdf\Output\Destination;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class RestaurantSettingController extends Controller
 {
@@ -61,5 +65,28 @@ class RestaurantSettingController extends Controller
         $settings->save();
 
         return to_route('admin.settings.edit')->with('success', __('admin.settings.updated'));
+    }
+
+    /**
+     * A printable "join our Wi-Fi" sign, independent of any table.
+     *
+     * The network belongs to the venue rather than to a seat, so this is one
+     * sign for the counter or the door — changing the password means
+     * reprinting this single page, not every table sign in the restaurant.
+     */
+    public function wifiQrCode(RestaurantSettings $settings, PdfService $pdf, WifiQrCode $wifi): HttpResponse
+    {
+        abort_unless($wifi->isConfigured($settings), 404);
+
+        $mpdf = $pdf->fromView('pdf.wifi-qr', [
+            'branding' => $settings,
+            'qrCode' => $wifi->png($settings),
+            'labels' => __('pdf'),
+        ], 'ltr', ['format' => 'A6']);
+
+        return response($mpdf->Output('wifi-qr.pdf', Destination::STRING_RETURN), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="wifi-qr.pdf"',
+        ]);
     }
 }

@@ -7,12 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreProductRequest;
 use App\Http\Requests\Admin\UpdateProductRequest;
 use App\Models\Category;
+use App\Models\Modifier;
 use App\Models\ModifierGroup;
 use App\Models\Printer;
 use App\Models\Product;
 use App\Models\Tag;
 use App\Services\LanguageRegistry;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -56,18 +58,24 @@ class ProductController extends Controller
         $data = $request->validated();
         $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         $modifierGroupIds = $data['modifier_group_ids'] ?? [];
+        $modifierOverrides = $data['modifier_overrides'] ?? [];
         $tagIds = $data['tag_ids'] ?? [];
         $categoryIds = $data['category_ids'] ?? [];
-        unset($data['translations'], $data['modifier_group_ids'], $data['tag_ids'], $data['category_ids']);
+        unset($data['translations'], $data['modifier_group_ids'], $data['modifier_overrides'], $data['tag_ids'], $data['category_ids']);
 
         if ($request->hasFile('image')) {
             $data['image_path'] = $request->file('image')->store('products', 'public');
         }
         unset($data['image']);
 
-        $product = Product::create([...$data, ...$translations]);
-        $product->modifierGroups()->sync($modifierGroupIds);
-        $product->tags()->sync($tagIds);
+        $product = DB::transaction(function () use ($data, $translations, $modifierGroupIds, $modifierOverrides, $tagIds) {
+            $product = Product::create([...$data, ...$translations]);
+            $product->modifierGroups()->sync($modifierGroupIds);
+            $product->tags()->sync($tagIds);
+            $this->syncModifierOverrides($product, $modifierOverrides);
+
+            return $product;
+        });
 
         foreach ($categoryIds as $categoryId) {
             $this->placeInCategory($product, $categoryId);
@@ -78,7 +86,7 @@ class ProductController extends Controller
 
     public function edit(Product $product): Response
     {
-        $product->load('translations', 'modifierGroups', 'tags', 'menus.translations', 'categories');
+        $product->load('translations', 'modifierGroups', 'modifierOverrides', 'tags', 'menus.translations', 'categories');
 
         return Inertia::render('Admin/Products/Form', [
             'languages' => $this->registry->active()->values(),
@@ -95,9 +103,10 @@ class ProductController extends Controller
         $data = $request->validated();
         $translations = $this->fillMissingTranslations($data['translations'], $this->registry->default()?->code);
         $modifierGroupIds = $data['modifier_group_ids'] ?? [];
+        $modifierOverrides = $data['modifier_overrides'] ?? [];
         $tagIds = $data['tag_ids'] ?? [];
         $categoryIds = $data['category_ids'] ?? [];
-        unset($data['translations'], $data['modifier_group_ids'], $data['tag_ids'], $data['category_ids']);
+        unset($data['translations'], $data['modifier_group_ids'], $data['modifier_overrides'], $data['tag_ids'], $data['category_ids']);
 
         if ($request->hasFile('image')) {
             if ($product->image_path) {
@@ -107,15 +116,43 @@ class ProductController extends Controller
         }
         unset($data['image']);
 
-        $product->update([...$data, ...$translations]);
-        $product->modifierGroups()->sync($modifierGroupIds);
-        $product->tags()->sync($tagIds);
+        DB::transaction(function () use ($data, $translations, $product, $modifierGroupIds, $modifierOverrides, $tagIds) {
+            $product->update([...$data, ...$translations]);
+            $product->modifierGroups()->sync($modifierGroupIds);
+            $product->tags()->sync($tagIds);
+            $this->syncModifierOverrides($product, $modifierOverrides);
+        });
 
         foreach ($categoryIds as $categoryId) {
             $this->placeInCategory($product, $categoryId);
         }
 
         return to_route('admin.products.index')->with('success', __('admin.products.updated'));
+    }
+
+    /**
+     * Replaces this product's modifier price/availability overrides with
+     * the submitted set. Entries where both fields are null are dropped —
+     * they mean "inherit the modifier's global value", so there's nothing
+     * to store for them (see ProductModifierOverride).
+     *
+     * @param  array<int, array{modifier_id:int, price_cents?:?int, is_active?:?bool}>  $overrides
+     */
+    protected function syncModifierOverrides(Product $product, array $overrides): void
+    {
+        $product->modifierOverrides()->delete();
+
+        foreach ($overrides as $override) {
+            if (($override['price_cents'] ?? null) === null && ($override['is_active'] ?? null) === null) {
+                continue;
+            }
+
+            $product->modifierOverrides()->create([
+                'modifier_id' => $override['modifier_id'],
+                'price_cents' => $override['price_cents'] ?? null,
+                'is_active' => $override['is_active'] ?? null,
+            ]);
+        }
     }
 
     /**
@@ -153,14 +190,33 @@ class ProductController extends Controller
         return to_route('admin.products.index')->with('success', __('admin.products.deleted'));
     }
 
+    /**
+     * Every modifier group with its full modifier list (including each
+     * modifier's global default price) — the Product form needs this to
+     * let the admin set a per-product price/availability override, not
+     * just pick which groups apply.
+     */
     protected function modifierGroupOptions()
     {
         $defaultLocale = $this->registry->default()?->code;
 
-        return ModifierGroup::query()->orderBy('sort_order')->get()->map(fn (ModifierGroup $group) => [
-            'id' => $group->id,
-            'name' => $group->translate($defaultLocale)?->name ?? "#{$group->id}",
-        ]);
+        return ModifierGroup::query()
+            ->with('modifiers.translations')
+            ->orderBy('sort_order')
+            ->get()
+            ->map(fn (ModifierGroup $group) => [
+                'id' => $group->id,
+                'name' => $group->translate($defaultLocale)?->name ?? "#{$group->id}",
+                'is_required' => $group->is_required,
+                'min_select' => $group->min_select,
+                'max_select' => $group->max_select,
+                'modifiers' => $group->modifiers->map(fn (Modifier $modifier) => [
+                    'id' => $modifier->id,
+                    'name' => $modifier->translate($defaultLocale)?->name ?? "#{$modifier->id}",
+                    'price_cents' => $modifier->price_cents,
+                    'is_active' => $modifier->is_active,
+                ]),
+            ]);
     }
 
     protected function tagOptions()
@@ -240,6 +296,14 @@ class ProductController extends Controller
             });
 
             $payload['modifier_group_ids'] = $product->modifierGroups->pluck('id');
+            // Keyed by modifier_id so the form can look up a modifier's
+            // override in O(1) while rendering each group's modifier list.
+            $payload['modifier_overrides'] = $product->modifierOverrides->mapWithKeys(fn ($override) => [
+                $override->modifier_id => [
+                    'price_cents' => $override->price_cents,
+                    'is_active' => $override->is_active,
+                ],
+            ]);
             $payload['tag_ids'] = $product->tags->pluck('id');
             $payload['category_ids'] = $product->categories->pluck('id')->unique()->values();
         }

@@ -2,6 +2,14 @@
 
 use Illuminate\Support\Str;
 
+$sqliteDatabase = env('DB_DATABASE', database_path('database.sqlite'));
+
+// WAL is a file-level journal: there is no file for an in-memory database,
+// and asking for it there fails the *connection* with "disk I/O error"
+// rather than being ignored — which is how the whole test suite goes red at
+// once when the test connection is :memory:.
+$sqliteOnDisk = $sqliteDatabase !== ':memory:';
+
 return [
 
     /*
@@ -34,9 +42,53 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
+            'database' => $sqliteDatabase,
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+
+            // WAL lets the background workers (queue, scheduler, Reverb)
+            // read while a web request is mid-write, instead of every one of
+            // them serialising behind a single writer lock and surfacing as
+            // "database is locked" on a busy service. busy_timeout then
+            // makes the one case WAL doesn't cover — two writers at once —
+            // wait its turn for up to 5s rather than failing instantly.
+            //
+            // Both are per-connection PRAGMAs, so they must be set on every
+            // connection the app opens; Laravel applies these automatically
+            // for the sqlite driver.
+            'journal_mode' => $sqliteOnDisk ? env('DB_SQLITE_JOURNAL_MODE', 'WAL') : null,
+
+            // FULL, not the usual WAL companion NORMAL. NORMAL skips the
+            // fsync at commit, so a power cut can lose the last few
+            // committed transactions — in this app that is the last few
+            // orders and payments, on a machine sitting in a restaurant
+            // with no UPS. The cost is one fsync per write on a workload of
+            // a few writes a minute, which is nothing.
+            'synchronous' => $sqliteOnDisk ? env('DB_SQLITE_SYNCHRONOUS', 'FULL') : null,
+
+            'busy_timeout' => env('DB_SQLITE_BUSY_TIMEOUT', 5000),
+        ],
+
+        /*
+         * Read-only source for `app:import-from-mysql`, which copies an
+         * existing MySQL installation's data into the SQLite file this app
+         * now runs on. Separate from 'mysql' below so both databases can be
+         * open at once during the import, and so its credentials can differ
+         * from whatever DB_* happens to be set to.
+         */
+        'mysql_import' => [
+            'driver' => 'mysql',
+            'host' => env('IMPORT_DB_HOST', '127.0.0.1'),
+            'port' => env('IMPORT_DB_PORT', '3306'),
+            'database' => env('IMPORT_DB_DATABASE', 'orange'),
+            'username' => env('IMPORT_DB_USERNAME', 'root'),
+            'password' => env('IMPORT_DB_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => false,
+            'engine' => null,
         ],
 
         'mysql' => [

@@ -20,5 +20,7 @@ return [
     'thank_you' => 'ننتظركم دائما ... <3',
     'scan_instruction' => 'امسح الرمز لعرض القائمة وطلب الطعام',
     'scan_service_instruction' => 'امسح الرمز لطلب :service — بدون الحاجة لفتح القائمة',
+    'wifi_heading' => 'واي فاي مجاني',
+    'wifi_network' => 'اسم الشبكة',
     'wifi_instruction' => 'امسح للاتصال بشبكة الواي فاي',
 ];

@@ -22,7 +22,12 @@ class MenuController extends Controller
     {
         $language = $languages->matchAcceptLanguage($request->header('Accept-Language'));
 
-        App::setLocale($language->code);
+        // No active languages yet (fresh install, pre-seed) — serve the
+        // configured fallback rather than 500-ing on a null language.
+        $locale = $language?->code ?? config('app.locale');
+        $direction = $language?->direction ?? 'ltr';
+
+        App::setLocale($locale);
 
         $categories = Category::query()
             ->whereNull('parent_id')
@@ -40,8 +45,8 @@ class MenuController extends Controller
             ->get();
 
         return response()->json([
-            'locale' => $language->code,
-            'direction' => $language->direction,
+            'locale' => $locale,
+            'direction' => $direction,
             'categories' => $categories->map(fn (Category $category) => $this->presentCategory($category)),
         ]);
     }

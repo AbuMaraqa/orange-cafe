@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
+import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm } from '@inertiajs/vue3';
@@ -186,6 +187,23 @@ function submit() {
                     </div>
                 </div>
                 <p class="mt-3 text-xs text-gray-400">{{ $t('settings.wifi_hint') }}</p>
+
+                <!-- Links to the saved settings, not to the form: printing a
+                     sign for an SSID that is still only typed into the box
+                     would produce a QR code for a network nobody can join.
+                     Hence the prompt to save first rather than a disabled
+                     button with no explanation. -->
+                <div class="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+                    <a
+                        v-if="setting.wifi_ssid"
+                        :href="route('admin.settings.wifi-qr')"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        <SecondaryButton type="button">{{ $t('settings.print_wifi_qr') }}</SecondaryButton>
+                    </a>
+                    <p v-else class="text-xs text-gray-400">{{ $t('settings.print_wifi_qr_hint') }}</p>
+                </div>
             </section>
 
             <section class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">

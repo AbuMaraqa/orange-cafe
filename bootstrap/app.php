@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'localeSessionRedirect' => \Mcamara\LaravelLocalization\Middleware\LocaleSessionRedirect::class,
             'sync.locale' => \App\Http\Middleware\SyncUserLocale::class,
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
+            'local-only' => \App\Http\Middleware\EnsureRequestIsLocal::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

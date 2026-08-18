@@ -17,6 +17,7 @@
         "mike42/escpos-php": "^2.2",
         "milon/barcode": "^13.1",
         "mpdf/mpdf": "^8.3",
+        "nativephp/electron": "1.3",
         "spatie/laravel-permission": "^6.25",
         "spatie/laravel-settings": "^3.9",
         "tightenco/ziggy": "^2.0"
@@ -58,6 +59,18 @@
             "@php artisan key:generate --ansi",
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --ansi"
+        ],
+        "dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan reverb:start\" \"npm run dev\" --names=server,queue,reverb,vite"
+        ],
+        "native:dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "npx concurrently -k -c \"#93c5fd,#c4b5fd\" \"php artisan orange:dev\" \"npm run dev\" --names=app,vite"
+        ],
+        "native:dev:deps": [
+            "Composer\\Config::disableProcessTimeout",
+            "npx concurrently -k -c \"#93c5fd,#c4b5fd\" \"php artisan orange:dev --with-dependencies\" \"npm run dev\" --names=app,vite"
         ]
     },
     "extra": {

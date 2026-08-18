@@ -1,0 +1,11 @@
+{
+    "preset": "laravel",
+    "exclude": [
+        "bin",
+        "build",
+        "dist",
+        "node_modules",
+        "storage",
+        "vendor"
+    ]
+}

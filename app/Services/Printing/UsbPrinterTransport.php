@@ -102,8 +102,29 @@ class UsbPrinterTransport
         }
     }
 
+    /**
+     * Whether direct-USB printing is possible in this PHP process at all.
+     * The NativePHP runtime ships a static PHP build without ext-ffi (and
+     * without an ext/ directory to add one to), so on the packaged desktop
+     * app this is always false and only network printers work — the control
+     * panel reports that, and the admin printer form should not offer USB
+     * as an option where it can't function.
+     */
+    public static function supported(): bool
+    {
+        return extension_loaded('ffi') && class_exists(FFI::class);
+    }
+
     private function ffi(): FFI
     {
+        if (! self::supported()) {
+            throw new RuntimeException(
+                "This build of PHP has no FFI extension, so USB printers can't be reached directly. "
+                .'Connect the printer over the network (set its connection type to "network" with an IP and port), '
+                .'or run the app on a PHP build with ext-ffi enabled.'
+            );
+        }
+
         return self::$ffi ??= FFI::cdef(<<<'CDEF'
             typedef struct libusb_context libusb_context;
             typedef struct libusb_device_handle libusb_device_handle;

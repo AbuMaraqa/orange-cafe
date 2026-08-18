@@ -194,7 +194,9 @@
             "min_select": "Minimum selections",
             "max_select": "Maximum selections",
             "unlimited": "Unlimited",
-            "name_example": "e.g. Size, Extras, Spice Level"
+            "name_example": "e.g. Size, Extras, Spice Level",
+            "used_by": "Used in",
+            "used_by_count": "Used by {count} product(s)"
         },
         "products": {
             "title": "Products",
@@ -212,7 +214,15 @@
             "prep_time_placeholder": "e.g. 15",
             "prep_time_hint": "Estimated time to prepare this item. Leave blank to hide it on the menu.",
             "category_hint": "Checking a category adds the product to it immediately — a product can belong to several categories at once. To remove a category or adjust its price/order, use Menu Builder.",
-            "missing_translations": "Missing translations"
+            "missing_translations": "Missing translations",
+            "variations": "Variations",
+            "variations_hint": "Attach an option group (e.g. Size, Extras) and, if needed, give this specific product its own price for one of its choices — otherwise it uses the group's default price.",
+            "variations_none": "No option groups yet. Create one under Modifier Groups first.",
+            "base_price": "Default",
+            "custom_price": "Price for this product",
+            "custom_price_placeholder": "Inherit default",
+            "available_for_product": "Available",
+            "unavailable_globally": "Turned off for every product (edit the group to change this)."
         },
         "menus": {
             "title": "Menus",
@@ -284,6 +294,7 @@
         "usb_detect_hint": "Fills in the vendor/product ID for you — needs the printer plugged into this computer, and Chrome or Edge.",
         "usb_detect_unsupported": "This browser can't detect USB devices — open this page in Chrome or Edge on the computer the printer is plugged into, or enter the IDs manually below.",
         "usb_detect_error": "Couldn't read that device. Enter the vendor/product ID manually below.",
+        "usb_unsupported_server": "This installation can't drive USB printers directly — its PHP runtime has no FFI extension, which is the case for the packaged desktop app. Connect the printer to the network and use its IP address instead.",
         "connection": "Connection",
         "connection_online": "Online",
         "connection_offline": "Offline",
@@ -312,7 +323,10 @@
         "move_table": "Move table",
         "move_to": "Move to table",
         "will_merge": "Has an order — will merge",
-        "move_merge_confirm": "Table {label} already has a running order. Move this order there and merge it with the existing one?"
+        "move_merge_confirm": "Table {label} already has a running order. Move this order there and merge it with the existing one?",
+        "keyboard_hint": "Or focus a table and nudge it with the arrow keys",
+        "snap_to_grid": "Snap to grid",
+        "snap_alt_hint": "Hold Alt while dragging to place a table freely"
     },
     "staff": {
         "no_orders": "No active orders right now.",
@@ -427,7 +441,9 @@
         "wifi_hint": "Printed as a scannable Wi-Fi QR code next to each table's menu QR — leave blank to skip it.",
         "receipt": "Cashier Receipt",
         "receipt_footer": "Receipt footer text",
-        "receipt_footer_hint": "Shown at the bottom of the printed cashier receipt. You can enter more than one line. Leave blank to use the default (\"Thank you for your visit!\")."
+        "receipt_footer_hint": "Shown at the bottom of the printed cashier receipt. You can enter more than one line. Leave blank to use the default (\"Thank you for your visit!\").",
+        "print_wifi_qr": "Print Wi-Fi QR sign",
+        "print_wifi_qr_hint": "Enter a network name and save to print a Wi-Fi sign."
     },
     "language_switcher": {
         "label": "Language"

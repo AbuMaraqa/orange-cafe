@@ -1,0 +1,331 @@
+# Orange Cafe — تغليف السيرفر بملف `.exe` واحد
+
+هذا المستند يشرح كيف يتحوّل المشروع إلى برنامج ويندوز واحد يثبّته صاحب الكافيه
+على جهاز واحد، ويشتغل كل شي (قاعدة البيانات، الويب سيرفر، البث اللحظي، طابور
+الطباعة، الجدولة) جوّاه — بدون Laragon ولا XAMPP ولا MySQL ولا أي تنصيب يدوي.
+
+---
+
+## 1. الفكرة بسطر واحد
+
+**جهاز واحد بس بيشغّل الـ `.exe`.** كل الأجهزة التانية بالكافيه — تابلت النادل،
+شاشة المطبخ، الكاشير، وحتى جوال الزبون اللي بيمسح QR الطاولة — بتفتح متصفح
+عادي على عنوان هذا الجهاز عالشبكة المحلية. ما في شي بينصّب عليها.
+
+```
+┌─────────────────────────────────────────┐
+│  جهاز السيرفر  ←  OrangeCafe.exe        │
+│  ├── SQLite        (كل البيانات)         │
+│  ├── artisan serve  0.0.0.0:8000  ←──────┼── تابلت النادل
+│  ├── reverb:start   0.0.0.0:8080  ←──────┼── شاشة المطبخ
+│  ├── queue:work     (الطباعة)            │   الكاشير
+│  └── schedule:work  (فحص الطابعات)       │   جوال الزبون (QR)
+└─────────────────────────────────────────┘
+```
+
+نافذة Electron نفسها **مش** واجهة استخدام — هي لوحة حالة الخادم فقط
+(`/native/panel`)، وأيقونة الـ tray هي الطريقة العادية للوصول إليها.
+
+---
+
+## 2. ليش SQLite
+
+مش تفضيل — **إجبار**. نسخة PHP اللي بيضمّها NativePHP هي build ستاتيكي
+بيشحن `pdo_sqlite` فقط: ما في `pdo_mysql`، ولا في مجلد `ext/` تقدر تضيف فيه
+واحد. وفوق هذا `NativeServiceProvider::rewriteDatabase()` بيجبر
+`database.default` على اتصال `nativephp` الخاص فيه بأي حال.
+
+عملياً هذا مكسب: صار في ملف بيانات واحد بمجلد بيانات المستخدم، بيضلّ موجود لو
+أعاد تنصيب البرنامج، وبينسخ احتياطياً بنسخ ملف واحد. كل الـ 47 migration
+بتشتغل على SQLite بدون تعديل (تم التحقق).
+
+الإعدادات المهمّة في `config/database.php`:
+
+| PRAGMA | القيمة | ليش |
+|---|---|---|
+| `journal_mode` | `WAL` | عشان الـ queue والـ scheduler وReverb يقرأوا أثناء كتابة طلب من الويب، بدل ما يصطفّوا خلف قفل كاتب واحد ويطلع "database is locked" |
+| `busy_timeout` | `5000` | الحالة الوحيدة اللي WAL ما بيغطّيها (كاتبَين بنفس اللحظة) بتستنّى دورها 5 ثواني بدل ما تفشل فوراً |
+
+---
+
+## 3. التشغيل في وضع التطوير
+
+```powershell
+composer native:dev
+```
+
+هذا بيشغّل `php artisan orange:dev` + `npm run dev` مع بعض. **مش** `php artisan native:dev` —
+هذا اسم سكربت في `composer.json` وليس أمر artisan، وتشغيله كأمر بيعطي
+`Command "native:dev" is not defined`.
+
+### ليش `orange:dev` مش `native:serve` مباشرة
+
+`App\Console\Commands\NativeDev` غلاف رفيع فوق `native:serve`، موجود لسببين
+كل واحد فيهم بيكلّف دقايق حقيقية بكل تشغيل:
+
+1. **`native:serve` بيعيد `npm install` بكل إقلاع.** الـ `DevelopCommand` تبعه
+   بينادي `installNPMDependencies(force: true)` بدون أي شرط، و `postinstall`
+   تبع الحزمة هو `electron-builder install-app-deps` — يعني دقيقتين من
+   "Fetching latest dependencies…" قبل ما Electron ينطلب أصلاً، على
+   `node_modules` كامل وما تغيّر. ما في شي من هذا لازم إلا لو NativePHP نفسها
+   انحدّثت، فالأمر بيمرّر `--no-dependencies` افتراضياً:
+
+   ```powershell
+   composer native:dev:deps    # التشغيلة الوحيدة اللي بعد `composer update`
+   ```
+
+2. **VS Code بيضبط `ELECTRON_RUN_AS_NODE=1`** لعملية الإضافات تبعته، وكل
+   تيرمنال أو مهمة بتنفتح من المحرّر بترثه. Electron بيحترم هذا المتغيّر
+   وبيقلع كعملية Node عادية بدل Electron — فـ `import { app } from "electron"`
+   بيرجّع shim التنزيل (تصديره مجرد نص مسار) بدل الموديول الداخلي، والإقلاع
+   بيموت قبل ما تظهر أي نافذة برسالة:
+
+   ```
+   TypeError: Cannot read properties of undefined (reading "exports")
+       at cjsPreparseModuleExports (node:internal/modules/esm/translators)
+   ```
+
+   اللي ما بتذكر لا Electron ولا المتغيّر وبتقرأ وكأن `node_modules` مكسور.
+   نفس الأمر من نافذة PowerShell عادية بيشتغل — وهذا اللي بيخلّي تتبّعها مربك.
+   `orange:dev` بيمسح المتغيّر لهذه التشغيلة، فما بيفرق من وين انطلق الأمر.
+
+### ⚠️ قاعدة بيانات مختلفة عن العادية
+
+في وضع التطوير، NativePHP بيتجاهل `DB_CONNECTION` وبيشغّل التطبيق على ملف
+**خاص فيه**:
+
+| كيف تشغّل | ملف قاعدة البيانات |
+|---|---|
+| `php artisan serve` (ويب عادي) | `database/database.sqlite` |
+| `composer native:dev` (سطح المكتب) | `database/nativephp.sqlite` |
+
+هذا سببه `NativeServiceProvider::rewriteDatabase()`، اللي بيجبر
+`database.default` على اتصال `nativephp` الخاص فيه.
+
+**النتيجة العملية:** `php artisan db:seed` أو `migrate` من التيرمنال بيكتبوا على
+الملف الأول، وتطبيق سطح المكتب بيقرأ من الثاني — فبتحسّ إنه "ما زرع أي بيانات".
+استخدم نسخ NativePHP:
+
+```powershell
+php artisan native:migrate
+php artisan native:seed                          # DatabaseSeeder كامل
+php artisan native:seed --class=CatalogSeeder    # سيدر محدد
+php artisan native:migrate:fresh                 # صفر من جديد
+php artisan native:db:wipe
+```
+
+بالنسخة **المغلّفة** هذا الالتباس ما بيصير: ما في تيرمنال أصلاً، وقاعدة البيانات
+وحدة بمجلد بيانات المستخدم، والتطبيق بيهيّئها بنفسه عند أول إقلاع (فقرة 5).
+
+---
+
+## 4. أول بناء على جهاز التطوير
+
+### مرة واحدة فقط
+
+```powershell
+composer install
+npm install
+php artisan native:install       # بينزّل Electron ويجهّز الـ node deps
+powershell -File build/fetch-poppler.ps1   # بينزّل pdftoppm (مذكور تحت)
+php build/make-icons.php         # بيولّد public/icon.png و icon.ico
+```
+
+`native:install` و `fetch-poppler.ps1` بدهم إنترنت أول مرة فقط — بعدها التنزيلات
+مخبّأة تحت `build/cache/`.
+
+### كل بناء
+
+```powershell
+copy .env .env.dev-backup
+copy .env.production.example .env
+# عبّي: APP_KEY (php artisan key:generate) و REVERB_APP_ID/KEY/SECRET
+php artisan native:build win
+copy .env.dev-backup .env
+```
+
+الناتج: `dist/OrangeCafe-<version>-setup.exe` — هذا هو الملف اللي بينباع/بيتسلّم.
+
+> **مهم:** `npm run build` بيشتغل تلقائياً ضمن `prebuild` باستخدام الـ `.env`
+> الحالي، و `VITE_REVERB_APP_KEY` بينحرق داخل حزمة الـ JS. لهذا لازم يكون
+> `.env` هو نسخة الإنتاج وقت البناء، مش نسخة التطوير.
+
+---
+
+## 4. ملفّات مش-PHP لازم تُشحن مع البرنامج
+
+### poppler (`pdftoppm`) — إجباري للطباعة
+
+`EscPosImageRenderer` بيحوّل تذكرة المطبخ / فاتورة الكاشير إلى **صورة** قبل
+إرسالها للطابعة، لأن الطابعات الحرارية الرخيصة ما بتقدر تشكّل العربية بخطوطها
+الداخلية (بتطبع حروف مقطّعة ومقلوبة). مسار التحويل هو
+mPDF → PDF → `pdftoppm` → PNG → ESC/POS raster، وما في بديل PHP لخطوة
+`pdftoppm`.
+
+`build/fetch-poppler.ps1` بينزّلها ويحطّها في `bin/poppler/` (مش `build/`، لأن
+`build` مستثنى من التغليف في `config/nativephp.php`). بيشتغل تلقائياً ضمن
+`prebuild`، و `App\Services\Printing\PopplerBinary` بيلاقيها وقت التشغيل.
+
+لو ما انوجدت، لوحة التحكّم بتعرض **الطباعة الحرارية: pdftoppm غير موجود**
+باللون الأحمر، والطباعة بترمي رسالة واضحة بدل فشل غامض.
+
+### طابعات USB — ما بتشتغل بالنسخة المغلّفة
+
+`UsbPrinterTransport` بيستخدم امتداد `FFI` مع libusb، و runtime تبع NativePHP
+ما فيه `ext-ffi`. لهذا:
+
+- `UsbPrinterTransport::supported()` بترجّع `false` هناك،
+- شاشة إضافة طابعة بتعرض تحذير أصفر واضح قبل ما تعبّي الحقول،
+- لوحة التحكّم بتقول نفس الشي.
+
+**الحل بالكافيه: طابعات شبكة (IP + port).** كل طابعة حرارية POS تقريباً بتدعم
+Ethernet أو Wi‑Fi.
+
+---
+
+## 5. أول تشغيل على جهاز الزبون
+
+عند أول إقلاع، `NativeAppServiceProvider::ensureDatabaseIsReady()` بيلاقي قاعدة
+بيانات فاضية فبيشغّل `app:first-run-setup`، اللي:
+
+1. بيشغّل الـ migrations،
+2. بيزرع اللغات والأدوار وأنواع نداء النادل فقط — **مش** بيانات orange-cafe
+   التجريبية (`CatalogSeeder` وإخوانه مستثنيين عمداً)،
+3. بينشئ حساب مدير واحد بكلمة مرور عشوائية.
+
+**كلمة المرور بتظهر ببطاقة برتقالية بأعلى لوحة التحكّم** لحد ما يضغط المسؤول
+"حفظتها". هذا مقصود: بدونها الملف بينكتب في مجلد بيانات المستخدم وما حدا
+بيلاقيه، والبرنامج بيصير ما ينفتح.
+
+على التشغيلات اللاحقة بيشتغل `migrate --force` بس — عشان التحديثات.
+
+---
+
+### مفاتيح خاصة بكل تنصيب
+
+نفس ملف التنصيب بينوزّع على كل الزبائن، يعني `APP_KEY` و `REVERB_APP_SECRET`
+اللي بالبناء بيكونوا متطابقين عند الجميع وقابلين للاستخراج من الـ `.exe`.
+`APP_KEY` بيوقّع الجلسات والكوكيز، و `REVERB_APP_SECRET` هو اللي بيصرّح
+الاشتراك بقناة `orders` الخاصة والنشر عليها — فبالقيم المشحونة، أي حدا على واي‑فاي
+المطعم معه نسخة من الملف بيقدر يقرأ الطلبيات اللحظية أو يحقن أحداث بشاشة المطبخ
+بدون أي تسجيل دخول.
+
+`NativeAppServiceProvider::ensureInstallSpecificSecrets()` بيولّد قيمتين جديدتين
+عند أول إقلاع، بيخزّنهم بمخزن إعدادات NativePHP (مجلد بيانات المستخدم — بيضلّ
+بعد التحديث أو إعادة التنصيب)، وبيكتبهم بالـ `.env` قبل ما تشتغل أي خدمة فرعية.
+القيم بملف `.env.production.example` مجرد placeholders.
+
+---
+
+## 6. لوحة تحكّم الخادم (`/native/panel`)
+
+بتفتح تلقائياً بأول إقلاع. **بتشتغل من نفس الجهاز فقط** (`local-only`
+middleware) لأنها بتعدّل `.env` وبتعيد تشغيل الخادم للكافيه كله.
+
+بتعرض:
+
+| الصف | بيتفحص فعلياً |
+|---|---|
+| قاعدة البيانات | فتح PDO على الاتصال المستخدم |
+| خادم الشبكة (LAN) | منفذ TCP مفتوح على 127.0.0.1:8000 |
+| البث اللحظي (Reverb) | منفذ TCP + وجود العملية |
+| الطابور (Queue) | العملية + عدد المنتظر/الفاشل |
+| الجدولة | وجود العملية |
+| الطباعة الحرارية | وجود `pdftoppm` فعلياً |
+| الطابعات | كم طابعة مفعّلة متصلة (من آخر فحص مجدول) |
+
+وبتسمح بتعديل: منفذ LAN، Reverb host/port، وعنوان QR (تحت)، ثم **إعادة تشغيل
+الخادم** لتطبيقها.
+
+> ما في زر مزامنة — بيانات هذا التطبيق كلها محلية على هذا الجهاز.
+
+---
+
+## 7. عنوان رموز QR (`PUBLIC_BASE_URL`)
+
+لافتات الطاولات بتنطبع عليها روابط. `route(..., absolute: true)` بيبني على
+عنوان **الطلب الحالي** — وصاحب الكافيه عادة بيولّد اللافتات من جهاز السيرفر
+نفسه على `http://localhost:8000`، فبتطلع لافتة بترسل كل جوال لنفسه.
+
+`App\Services\Native\PublicUrlResolver` بيحلّ هذا: بيعيد كتابة
+scheme/host/port لروابط الـ QR فقط، حسب:
+
+1. `PUBLIC_BASE_URL` من `.env` لو محدّد (يتعدّل من لوحة التحكّم)،
+2. وإلا: عنوان الجهاز المكتشَف عالشبكة + `LAN_SERVER_PORT`،
+3. وإلا: `config('app.url')`.
+
+**أي تغيير هنا بيعني إعادة طباعة لافتات الطاولات.** يُفضّل حجز IP ثابت
+(DHCP reservation) لجهاز السيرفر على الراوتر قبل طباعة اللافتات.
+
+---
+
+## 8. الصور المرفوعة
+
+`Storage::disk('public')->url()` بيولّد `/storage/...`، اللي عادة بيخدمه رابط
+رمزي `public/storage`. بالنسخة المغلّفة هذا ما بينفع: NativePHP بينقل مجلد
+`storage` إلى مجلد بيانات المستخدم وقت الإقلاع، فأي رابط رمزي مبني وقت البناء
+بيشاور على جهاز المطوّر.
+
+الحل: `App\Http\Controllers\StorageFileController` بيخدم الملفات مباشرة من
+قرص `public` عبر مسار `/storage/{path}`، مع ETag و cache ليوم. على نشر ويب عادي
+السيرفر بيخدم الملف من الرابط الرمزي قبل ما يوصل Laravel، فهذا المسار ببساطة
+ما بينفّذ هناك — سلوك واحد بدون تفريعات حسب البيئة.
+
+---
+
+## 9. نقل بيانات من MySQL القديمة
+
+```powershell
+# 1. تأكّد إن MySQL شغّالة والبيانات فيها
+# 2. اضبط IMPORT_DB_* في .env
+php artisan migrate --force
+php artisan app:import-from-mysql --pretend    # تقرير بدون كتابة
+php artisan app:import-from-mysql
+```
+
+الأمر بينسخ الجداول الموجودة **على الطرفين** فقط، عمود-بعمود، فقاعدة مصدر من
+نسخة أقدم (ناقصها عمود أضافته migration لاحقة) بتنتقل نظيفة بدل ما تفشل. بيرتّب
+الجداول حسب علاقات المفاتيح، وبيطفّي `foreign_keys` أثناء العملية (الجداول
+اللي بتشاور على نفسها — `categories.parent_id` — ما في ترتيب بيحلّها).
+
+جدول `migrations` مستثنى عمداً: نسخ تاريخ الهجرات من المصدر ممكن يخلّي
+`migrate` لاحقاً يتخطّى migration ما اشتغلت فعلاً هون.
+
+كلمات المرور بتنتقل كما هي (hashes)، فحسابات الموظفين بتضلّ تشتغل.
+
+---
+
+## 10. النسخ الاحتياطي واستعادة البيانات
+
+بيانات الكافيه كلها بملف SQLite واحد بمجلد بيانات المستخدم:
+
+```
+%APPDATA%\ps.befoundonline.orangecafe\
+```
+
+للنسخ الاحتياطي: أغلق البرنامج من الـ tray، وانسخ المجلد كامل (بيشمل ملف
+القاعدة + الصور المرفوعة تحت `storage/app/public`). ملفات `-wal` و `-shm`
+لازم تُنسخ مع ملف القاعدة لو البرنامج شغّال.
+
+---
+
+## 11. البناء القديم (MariaDB محمولة) — متقاعد
+
+`build/release.ps1` و `build/launcher.ps1` القديمين (PHP محمول + MariaDB محمولة
++ launcher بـ ps2exe) انحذفوا. مجلد `dist/OrangeCafe/` القديم متروك كما هو —
+احذفه يدوياً بعد ما تتأكّد إنه ما في بيانات مطلوبة تحت `dist/OrangeCafe/mysql-data`.
+
+---
+
+## 12. مرجع سريع للأوامر
+
+| الأمر | الوظيفة |
+|---|---|
+| `composer native:dev` | تشغيل النسخة المكتبية بوضع التطوير + Vite (بدون `npm install`) |
+| `composer native:dev:deps` | نفسه لكن مع `npm install` — بعد تحديث NativePHP |
+| `php artisan native:build win` | بناء الـ `.exe` |
+| `php artisan native:reset` | مسح ملفات البناء والتوزيع |
+| `php artisan app:first-run-setup` | تهيئة تنصيب جديد يدوياً |
+| `php artisan app:import-from-mysql` | نقل البيانات من MySQL |
+| `powershell -File build/fetch-poppler.ps1` | تنزيل/تجهيز pdftoppm |
+| `php build/make-icons.php` | إعادة توليد أيقونات البرنامج |

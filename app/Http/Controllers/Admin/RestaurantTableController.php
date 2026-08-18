@@ -9,6 +9,7 @@ use App\Http\Requests\Admin\UpdateRestaurantTableRequest;
 use App\Models\RestaurantTable;
 use App\Models\Service;
 use App\Services\LanguageRegistry;
+use App\Services\Native\PublicUrlResolver;
 use App\Services\PdfService;
 use App\Services\QrCodeService;
 use App\Settings\RestaurantSettings;
@@ -18,15 +19,17 @@ use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
+use Mpdf\Output\Destination;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class RestaurantTableController extends Controller
 {
     use PresentsTables;
 
-    public function __construct(private readonly QrCodeService $qrCodeService)
-    {
-    }
+    public function __construct(
+        private readonly QrCodeService $qrCodeService,
+        private readonly PublicUrlResolver $publicUrl,
+    ) {}
 
     public function index(): Response
     {
@@ -85,11 +88,10 @@ class RestaurantTableController extends Controller
             'table' => $table,
             'branding' => $branding,
             'qrCode' => $this->qrPng($this->menuUrl($table, $languages), $branding),
-            'wifiQrCode' => $this->wifiPng($branding),
             'labels' => __('pdf'),
         ], 'ltr', ['format' => 'A6']);
 
-        return response($mpdf->Output("table-{$table->label}-qr.pdf", \Mpdf\Output\Destination::STRING_RETURN), 200, [
+        return response($mpdf->Output("table-{$table->label}-qr.pdf", Destination::STRING_RETURN), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="table-'.$table->label.'-qr.pdf"',
         ]);
@@ -113,7 +115,7 @@ class RestaurantTableController extends Controller
             'labels' => __('pdf'),
         ], 'ltr', ['format' => 'A4']);
 
-        return response($mpdf->Output('table-qr-codes.pdf', \Mpdf\Output\Destination::STRING_RETURN), 200, [
+        return response($mpdf->Output('table-qr-codes.pdf', Destination::STRING_RETURN), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="table-qr-codes.pdf"',
         ]);
@@ -136,25 +138,34 @@ class RestaurantTableController extends Controller
 
         $filename = "table-{$table->label}-{$service->slug}-qr.pdf";
 
-        return response($mpdf->Output($filename, \Mpdf\Output\Destination::STRING_RETURN), 200, [
+        return response($mpdf->Output($filename, Destination::STRING_RETURN), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="'.$filename.'"',
         ]);
     }
 
+    /**
+     * Both URL builders run their result through PublicUrlResolver: these
+     * strings are printed onto a physical sign, so they have to work from a
+     * customer's phone, not from the browser that happened to generate them
+     * (typically the server machine itself, on localhost). See
+     * PublicUrlResolver.
+     */
     protected function menuUrl(RestaurantTable $table, LanguageRegistry $languages): string
     {
         $defaultLocale = $languages->default()?->code;
         $base = LaravelLocalization::getLocalizedURL($defaultLocale, route('menu.index', [], true));
 
-        return $base.'?table_id='.$table->id.'&table_label='.urlencode($table->label);
+        return $this->publicUrl->rewrite($base).'?table_id='.$table->id.'&table_label='.urlencode($table->label);
     }
 
     protected function serviceUrl(RestaurantTable $table, Service $service, LanguageRegistry $languages): string
     {
         $defaultLocale = $languages->default()?->code;
 
-        return LaravelLocalization::getLocalizedURL($defaultLocale, route('waiter-calls.quick', [$table, $service], true));
+        return $this->publicUrl->rewrite(
+            LaravelLocalization::getLocalizedURL($defaultLocale, route('waiter-calls.quick', [$table, $service], true))
+        );
     }
 
     protected function qrPng(string $data, ?RestaurantSettings $branding = null): string
@@ -164,24 +175,5 @@ class RestaurantTableController extends Controller
             : null;
 
         return base64_encode($this->qrCodeService->generatePng($data, $logoPath));
-    }
-
-    /**
-     * A phone's camera reads a QR encoding the `WIFI:` URI as "join this
-     * network" directly — it can't also open a link in the same scan, so
-     * this prints as its own code next to the menu QR rather than being
-     * folded into it. Null (no logo overlay, unlike qrPng) keeps the
-     * WPA fields' higher module density scanning reliably.
-     */
-    protected function wifiPng(RestaurantSettings $branding): ?string
-    {
-        if (! $branding->wifi_ssid) {
-            return null;
-        }
-
-        $escape = fn (string $value) => addcslashes($value, '\\;,:"');
-        $data = 'WIFI:T:WPA;S:'.$escape($branding->wifi_ssid).';P:'.$escape($branding->wifi_password ?? '').';;';
-
-        return base64_encode($this->qrCodeService->generatePng($data));
     }
 }

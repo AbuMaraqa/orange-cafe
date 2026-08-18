@@ -43,6 +43,7 @@ function destroy(group) {
                         <th class="px-4 py-3 text-start">{{ $t('common.name') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.modifier_groups.rule') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.modifier_groups.options') }}</th>
+                        <th class="px-4 py-3 text-start">{{ $t('admin.modifier_groups.used_by') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('common.status') }}</th>
                         <th class="px-4 py-3 text-end">{{ $t('common.actions') }}</th>
                     </tr>
@@ -59,6 +60,14 @@ function destroy(group) {
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                             {{ group.modifiers_count }}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                            <span
+                                v-if="group.products_count > 0"
+                                class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                                :title="$t('admin.modifier_groups.used_by_count', { count: group.products_count })"
+                            >{{ group.products_count }}</span>
+                            <span v-else class="text-gray-400">—</span>
                         </td>
                         <td class="whitespace-nowrap px-4 py-3">
                             <span

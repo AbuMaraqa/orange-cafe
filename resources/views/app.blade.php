@@ -18,6 +18,24 @@
 
         <title inertia>{{ config('app.name', 'Laravel') }}</title>
 
+        {{--
+            Reverb connection details, served fresh on every page load.
+
+            Vite compiles VITE_REVERB_* into the JS bundle at build time, which
+            makes them wrong for a desktop install: the server's port is
+            editable from the native control panel, and one saved change there
+            would leave every browser in the restaurant dialling the port that
+            happened to be set on the *developer's* machine — live order
+            updates silently dead, with nothing in the UI to say so.
+
+            The host is omitted on purpose: resources/js/echo.js derives it
+            from window.location.hostname, which is already correct for every
+            device without the server having to guess its own address.
+        --}}
+        <meta name="reverb-key" content="{{ config('broadcasting.connections.reverb.key') }}">
+        <meta name="reverb-port" content="{{ config('broadcasting.connections.reverb.options.port') }}">
+        <meta name="reverb-scheme" content="{{ config('broadcasting.connections.reverb.options.scheme') }}">
+
         <script>
             // Must run before first paint (hence: inline, in <head>, not
             // bundled) so the page never flashes the wrong theme.

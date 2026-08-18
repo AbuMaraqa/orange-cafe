@@ -29,8 +29,45 @@ const canvas = ref(null);
 const selected = ref(null);
 const showCreate = ref(false);
 const draggingId = ref(null);
-let dragMoved = false;
 const serviceQrId = ref('');
+
+// Arranging a dining room means lining tables up in rows, so positions snap
+// to a grid by default. Hold Alt while dragging (or switch this off) for
+// free placement — an awkward corner table sometimes needs it.
+const snapToGrid = ref(true);
+const GRID_PERCENT = 2.5;
+
+// A drag has to travel this far before it counts as a drag rather than a
+// click. Without it, the one-pixel tremor of an ordinary click registered as
+// a move, so tapping a table to open its panel frequently did nothing at all
+// — and on a touchscreen, where a finger never holds perfectly still, it was
+// close to unusable.
+const DRAG_THRESHOLD_PX = 4;
+
+// Half the table's own size as a percentage of the canvas, so a table can be
+// pushed right up to the edge but never half-way off it. Measured rather than
+// hardcoded: the canvas is fluid and the table is a fixed 4rem.
+function halfSizePercent() {
+    const rect = canvas.value?.getBoundingClientRect();
+
+    if (!rect) return { x: 0, y: 0 };
+
+    const size = 64; // h-16 / w-16
+    return { x: (size / 2 / rect.width) * 100, y: (size / 2 / rect.height) * 100 };
+}
+
+function clampPosition(x, y) {
+    const half = halfSizePercent();
+
+    return {
+        x: Math.min(100 - half.x, Math.max(half.x, x)),
+        y: Math.min(100 - half.y, Math.max(half.y, y)),
+    };
+}
+
+function applySnap(value, enabled) {
+    return enabled ? Math.round(value / GRID_PERCENT) * GRID_PERCENT : value;
+}
 
 function serviceQrUrl(tableId, serviceId) {
     return route('admin.tables.service-qr', [tableId, serviceId]);
@@ -65,9 +102,13 @@ function chairs(table) {
     });
 }
 
+// Set by a drag that passed DRAG_THRESHOLD_PX, so the click that always
+// follows pointerup doesn't also open the detail panel.
+let suppressClick = false;
+
 function selectTable(table) {
-    if (dragMoved) {
-        dragMoved = false;
+    if (suppressClick) {
+        suppressClick = false;
         return;
     }
     selected.value = table;
@@ -90,7 +131,6 @@ function startDrag(table, event) {
     if (draggingId.value !== null) return;
 
     draggingId.value = table.id;
-    dragMoved = false;
     event.preventDefault();
 
     // Pointer capture ties every subsequent move/up event for this
@@ -100,15 +140,58 @@ function startDrag(table, event) {
     // gesture and never deliver a pointerup at all.
     event.currentTarget?.setPointerCapture?.(event.pointerId);
 
+    const rect = canvas.value.getBoundingClientRect();
+    const origin = { x: table.pos_x, y: table.pos_y };
+    const startPoint = { x: event.clientX, y: event.clientY };
+
+    // Where inside the table the grab happened, so it moves *with* the
+    // pointer instead of teleporting its centre under it. Grabbing a table
+    // by its edge used to snap it sideways before it had moved at all,
+    // which is what made placing one feel like a fight.
+    const grabOffset = {
+        x: origin.x - ((event.clientX - rect.left) / rect.width) * 100,
+        y: origin.y - ((event.clientY - rect.top) / rect.height) * 100,
+    };
+
+    let moved = false;
+    let frame = null;
+    let pending = null;
+
+    const commitFrame = () => {
+        frame = null;
+
+        if (!pending) return;
+
+        table.pos_x = pending.x;
+        table.pos_y = pending.y;
+        pending = null;
+    };
+
     const onMove = (moveEvent) => {
         if (moveEvent.pointerId !== event.pointerId) return;
 
-        const rect = canvas.value.getBoundingClientRect();
-        const x = Math.min(100, Math.max(0, ((moveEvent.clientX - rect.left) / rect.width) * 100));
-        const y = Math.min(100, Math.max(0, ((moveEvent.clientY - rect.top) / rect.height) * 100));
-        dragMoved = true;
-        table.pos_x = x;
-        table.pos_y = y;
+        if (!moved) {
+            const travelled = Math.hypot(moveEvent.clientX - startPoint.x, moveEvent.clientY - startPoint.y);
+
+            if (travelled < DRAG_THRESHOLD_PX) return;
+
+            moved = true;
+        }
+
+        // Alt bypasses snapping for the one table that has to sit off-grid.
+        const snap = snapToGrid.value && !moveEvent.altKey;
+
+        const raw = clampPosition(
+            ((moveEvent.clientX - rect.left) / rect.width) * 100 + grabOffset.x,
+            ((moveEvent.clientY - rect.top) / rect.height) * 100 + grabOffset.y,
+        );
+
+        pending = clampPosition(applySnap(raw.x, snap), applySnap(raw.y, snap));
+
+        // Pointer events can fire several times per frame; writing reactive
+        // state on each one makes Vue re-render faster than the screen can
+        // show, which is where the dragging judder came from.
+        frame ??= requestAnimationFrame(commitFrame);
     };
 
     // pointercancel (not just pointerup) must also end the gesture and
@@ -122,16 +205,88 @@ function startDrag(table, event) {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', endDrag);
         window.removeEventListener('pointercancel', endDrag);
+
+        if (frame !== null) {
+            cancelAnimationFrame(frame);
+            commitFrame();
+        }
+
         draggingId.value = null;
 
-        if (dragMoved) {
-            router.patch(route('admin.tables.position', table.id), { pos_x: table.pos_x, pos_y: table.pos_y }, { preserveScroll: true, preserveState: true });
-        }
+        if (!moved) return;
+
+        suppressClick = true;
+        persistPosition(table, origin);
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', endDrag);
     window.addEventListener('pointercancel', endDrag);
+}
+
+/**
+ * Saves a table's position, putting it back where it was if the request
+ * fails. Without the rollback the floor plan silently disagrees with the
+ * database until the next full page load — the table looks moved, and after
+ * a refresh it is somewhere else.
+ */
+function persistPosition(table, previous) {
+    router.patch(
+        route('admin.tables.position', table.id),
+        { pos_x: table.pos_x, pos_y: table.pos_y },
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onError: () => {
+                table.pos_x = previous.x;
+                table.pos_y = previous.y;
+            },
+        },
+    );
+}
+
+/**
+ * Arrow-key nudging, for the last few pixels that are fiddly to hit with a
+ * pointer — and the only way to move a table at all for anyone who can't use
+ * one. Shift moves a whole grid cell at a time.
+ */
+function nudge(table, dx, dy, event) {
+    const step = event.shiftKey ? GRID_PERCENT : 0.5;
+    const previous = { x: table.pos_x, y: table.pos_y };
+    const next = clampPosition(Number(table.pos_x) + dx * step, Number(table.pos_y) + dy * step);
+
+    table.pos_x = next.x;
+    table.pos_y = next.y;
+
+    persistPosition(table, previous);
+}
+
+/**
+ * A free spot for the next table, scanned left-to-right then down.
+ *
+ * New tables used to be created at a hardcoded 50/50, so adding several in a
+ * row buried them all under each other in the middle of the canvas and every
+ * one had to be dragged out of the pile before it could even be seen.
+ */
+function nextFreePosition() {
+    const spacing = 10;
+    const taken = props.tables.map((t) => ({ x: Number(t.pos_x), y: Number(t.pos_y) }));
+    const isFree = (x, y) => !taken.some((t) => Math.hypot(t.x - x, t.y - y) < spacing * 0.9);
+
+    for (let y = spacing; y <= 100 - spacing; y += spacing) {
+        for (let x = spacing; x <= 100 - spacing; x += spacing) {
+            if (isFree(x, y)) return { x, y };
+        }
+    }
+
+    return { x: 50, y: 50 };
+}
+
+function openCreate() {
+    const spot = nextFreePosition();
+    createForm.pos_x = spot.x;
+    createForm.pos_y = spot.y;
+    showCreate.value = true;
 }
 
 function submitCreate() {
@@ -171,25 +326,48 @@ function formatPrice(cents) {
     <AuthenticatedLayout>
         <template #header>{{ $t('tables.title') }}</template>
 
-        <div class="mb-4 flex items-center justify-between">
-            <p class="text-sm text-gray-500">{{ $t('tables.drag_hint') }} · {{ $t('tables.click_hint') }}</p>
-            <div class="flex gap-2">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm text-gray-500">
+                {{ $t('tables.drag_hint') }} · {{ $t('tables.click_hint') }} · {{ $t('tables.keyboard_hint') }}
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+                <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-400" :title="$t('tables.snap_alt_hint')">
+                    <Checkbox v-model:checked="snapToGrid" />
+                    {{ $t('tables.snap_to_grid') }}
+                </label>
                 <a :href="route('admin.tables.qr-all')" target="_blank" rel="noopener">
                     <SecondaryButton>{{ $t('tables.print_all_qr') }}</SecondaryButton>
                 </a>
-                <PrimaryButton @click="showCreate = true">{{ $t('tables.add_table') }}</PrimaryButton>
+                <PrimaryButton @click="openCreate">{{ $t('tables.add_table') }}</PrimaryButton>
             </div>
         </div>
 
         <div class="flex flex-col gap-6 lg:flex-row">
+            <!-- The grid is drawn only while snapping is on, as a hint to
+                 where a table will land — a static grid would just be noise
+                 the rest of the time. It is decorative, hence aria-hidden and
+                 pointer-events-none. -->
             <div
                 ref="canvas"
-                class="relative h-[32rem] min-w-0 flex-1 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/50"
+                class="relative h-[32rem] min-w-0 flex-1 overflow-hidden rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/50"
             >
+                <div
+                    v-if="snapToGrid"
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-0 opacity-60 dark:opacity-30"
+                    :style="{
+                        backgroundImage:
+                            'linear-gradient(to right, rgb(148 163 184 / 0.25) 1px, transparent 1px),' +
+                            'linear-gradient(to bottom, rgb(148 163 184 / 0.25) 1px, transparent 1px)',
+                        backgroundSize: GRID_PERCENT * 2 + '% ' + GRID_PERCENT * 2 + '%',
+                    }"
+                ></div>
+
                 <div
                     v-for="table in tables"
                     :key="table.id"
                     class="absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2"
+                    :class="draggingId === table.id ? 'z-20' : 'transition-[left,top] duration-150 ease-out'"
                     :style="{ left: table.pos_x + '%', top: table.pos_y + '%' }"
                 >
                     <span
@@ -199,14 +377,30 @@ function formatPrice(cents) {
                         :style="{ left: pos.left, top: pos.top }"
                     ></span>
 
+                    <!-- touch-action:none is what makes this draggable on a
+                         tablet at all: without it the browser claims the
+                         gesture for panning the page and never delivers the
+                         pointermove events, so tables simply could not be
+                         moved by finger — on the devices the staff actually
+                         use. -->
                     <button
                         type="button"
-                        class="absolute inset-0 flex flex-col items-center justify-center border-2 text-xs font-semibold shadow-sm transition-transform hover:z-10 hover:scale-105"
-                        :class="[statusClasses(table), table.shape === 'round' ? 'rounded-full' : 'rounded-md']"
+                        class="focus-brand absolute inset-0 flex touch-none flex-col items-center justify-center border-2 text-xs font-semibold shadow-sm transition-[transform,box-shadow] hover:z-10 hover:scale-105"
+                        :class="[
+                            statusClasses(table),
+                            table.shape === 'round' ? 'rounded-full' : 'rounded-md',
+                            draggingId === table.id ? 'scale-110 shadow-lg ring-2 ring-orange-400' : '',
+                            !table.is_active ? 'opacity-50' : '',
+                        ]"
                         :style="{ cursor: draggingId === table.id ? 'grabbing' : 'grab' }"
                         :title="table.active_order?.customer_name ?? null"
+                        :aria-label="`${table.label} — ${table.seats}`"
                         @pointerdown="startDrag(table, $event)"
                         @click="selectTable(table)"
+                        @keydown.up.prevent="nudge(table, 0, -1, $event)"
+                        @keydown.down.prevent="nudge(table, 0, 1, $event)"
+                        @keydown.left.prevent="nudge(table, -1, 0, $event)"
+                        @keydown.right.prevent="nudge(table, 1, 0, $event)"
                     >
                         {{ table.label }}
                         <span v-if="table.is_occupied" class="inline-flex items-center gap-0.5 text-[10px] font-normal">

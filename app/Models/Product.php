@@ -64,6 +64,32 @@ class Product extends Model implements TranslatableContract
             ->orderByPivot('sort_order');
     }
 
+    public function modifierOverrides(): HasMany
+    {
+        return $this->hasMany(ProductModifierOverride::class);
+    }
+
+    /**
+     * A modifier's price/availability is shared across every product that
+     * uses its group by default, but a single product can override either
+     * one (e.g. "Large" costs more on a chicken dish than on a juice) via
+     * modifierOverrides — assumes that relation is already eager-loaded.
+     */
+    public function effectiveModifierPriceCents(Modifier $modifier): int
+    {
+        $override = $this->modifierOverrides->firstWhere('modifier_id', $modifier->id);
+
+        return $override?->price_cents ?? $modifier->price_cents;
+    }
+
+    public function isModifierActiveForProduct(Modifier $modifier): bool
+    {
+        $override = $this->modifierOverrides->firstWhere('modifier_id', $modifier->id);
+        $isActive = $override?->is_active;
+
+        return $isActive ?? $modifier->is_active;
+    }
+
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class);

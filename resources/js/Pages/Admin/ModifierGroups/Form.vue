@@ -126,7 +126,13 @@ function submit() {
                         </button>
                     </div>
 
-                    <div class="mt-3 space-y-3">
+                    <div v-if="form.modifiers.length > 0" class="mt-3 flex items-center gap-3 px-3 text-xs font-medium uppercase tracking-wider text-gray-400">
+                        <span class="flex-1">{{ $t('common.name') }}</span>
+                        <span class="w-28">{{ $t('common.price') }}</span>
+                        <span class="w-9 text-center">{{ $t('common.active') }}</span>
+                        <span class="w-4"></span>
+                    </div>
+                    <div class="mt-1.5 space-y-3">
                         <div
                             v-for="(modifier, index) in form.modifiers"
                             :key="index"
@@ -151,12 +157,12 @@ function submit() {
                                     @update:model-value="(value) => { modifier.price_cents = Math.round(Number(value) * 100) || 0; }"
                                 />
                             </div>
-                            <label class="flex items-center pt-2">
+                            <label class="flex w-9 items-center justify-center pt-2">
                                 <Checkbox v-model:checked="modifier.is_active" />
                             </label>
                             <button
                                 type="button"
-                                class="pt-2 text-red-500 hover:text-red-700"
+                                class="w-4 pt-2 text-red-500 hover:text-red-700"
                                 :disabled="form.modifiers.length === 1"
                                 @click="removeModifier(index)"
                             >

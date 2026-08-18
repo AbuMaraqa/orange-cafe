@@ -6,6 +6,7 @@ use App\Services\PdfService;
 use Mike42\Escpos\PrintConnectors\DummyPrintConnector;
 use Mike42\Escpos\Printer as EscposPrinter;
 use Mpdf\Output\Destination;
+use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
@@ -31,8 +32,10 @@ class EscPosImageRenderer
 
     private const DPI = 203;
 
-    public function __construct(private PdfService $pdf)
-    {
+    public function __construct(
+        private PdfService $pdf,
+        private PopplerBinary $poppler,
+    ) {
     }
 
     public function render(string $view, array $data, string $direction, int $heightMm): string
@@ -66,6 +69,21 @@ class EscPosImageRenderer
      */
     protected function renderImage(string $view, array $data, string $direction, int $heightMm): string
     {
+        $pdftoppm = $this->poppler->path();
+
+        // Fail here with a sentence that names the actual problem, rather
+        // than letting Symfony's Process throw "The command ... failed"
+        // with an empty stderr further down. On the packaged app the binary
+        // is bundled by build/fetch-poppler.ps1; the control panel's
+        // "الطباعة الحرارية" row reports the same condition up front.
+        if ($pdftoppm === null) {
+            throw new RuntimeException(
+                'pdftoppm (poppler) was not found, so thermal tickets cannot be rasterized. '
+                .'Expected a bundled copy at '.base_path('bin/poppler').', poppler-utils on PATH, '
+                .'or an explicit POPPLER_PDFTOPPM_PATH.'
+            );
+        }
+
         $mpdf = $this->pdf->fromView($view, $data, $direction, [
             'format' => [self::PAGE_WIDTH_MM, $heightMm],
             'margin_top' => 3, 'margin_bottom' => 3, 'margin_left' => 3, 'margin_right' => 3,
@@ -87,7 +105,7 @@ class EscPosImageRenderer
             // -singlefile writes exactly "{prefix}.png" instead of
             // "{prefix}-1.png", so the output path is known up front.
             $process = new Process([
-                config('services.poppler.pdftoppm_path'), '-png', '-r', (string) self::DPI, '-singlefile', $pdfPath, "{$dir}/{$id}",
+                $pdftoppm, '-png', '-r', (string) self::DPI, '-singlefile', $pdfPath, "{$dir}/{$id}",
             ]);
             $process->setTimeout(10);
             $process->run();

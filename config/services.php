@@ -32,21 +32,25 @@ return [
     ],
 
     'poppler' => [
-        // Bare command name resolves via PATH on hosts where poppler-utils
-        // is installed system-wide (the deployment target); override with
-        // a full path where it isn't (e.g. no package manager install, as
-        // on Windows dev boxes).
-        'pdftoppm_path' => env('POPPLER_PDFTOPPM_PATH', 'pdftoppm'),
+        // Deliberately null by default — App\Services\Printing\PopplerBinary
+        // does the resolving (bundled copy under bin/poppler first, then
+        // PATH), because the packaged app ships a config cache built on the
+        // developer's machine and any path baked in here would point at a
+        // directory that doesn't exist on the customer's. Set this only to
+        // force a specific binary.
+        'pdftoppm_path' => env('POPPLER_PDFTOPPM_PATH'),
     ],
 
     'libusb' => [
         // FFI::cdef's library argument: a bare soname resolves via the
-        // linker's normal search path on the deployment target (Linux,
-        // where libusb-1.0-0 ships the versioned .so); override with a
-        // full path to a platform-specific binary (e.g. the .dll on
-        // Windows dev boxes, which don't have libusb installed as a
-        // system package).
-        'path' => env('LIBUSB_PATH', 'libusb-1.0.so.0'),
+        // linker's normal search path on Linux hosts (where libusb-1.0-0
+        // ships the versioned .so); override with a full path to a
+        // platform-specific binary (e.g. libusb-1.0.dll on Windows).
+        //
+        // Note: direct-USB printing needs PHP's FFI extension, which the
+        // NativePHP runtime does not bundle — on the packaged Windows app
+        // only network printers work. See UsbPrinterTransport.
+        'path' => env('LIBUSB_PATH', PHP_OS_FAMILY === 'Windows' ? 'libusb-1.0.dll' : 'libusb-1.0.so.0'),
     ],
 
 ];

@@ -20,5 +20,7 @@ return [
     'thank_you' => 'Thank you for your visit!',
     'scan_instruction' => 'Scan to view the menu and order',
     'scan_service_instruction' => 'Scan to request :service — no need to open the menu',
+    'wifi_heading' => 'Free Wi-Fi',
+    'wifi_network' => 'Network',
     'wifi_instruction' => 'Scan to join our Wi-Fi',
 ];

@@ -234,6 +234,7 @@ function submit() {
                             :key="product.id"
                             :product="product"
                             :currency-symbol="branding.currency_symbol"
+                            wrap-name
                             @add="onAddClick"
                         />
                     </div>
@@ -246,6 +247,7 @@ function submit() {
                                 :key="product.id"
                                 :product="product"
                                 :currency-symbol="branding.currency_symbol"
+                                wrap-name
                                 @add="onAddClick"
                             />
                         </div>

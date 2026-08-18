@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AccountingController;
 use App\Http\Controllers\Admin\CategoryController;
+use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Admin\LanguageController;
 use App\Http\Controllers\Admin\MenuBuilderController;
 use App\Http\Controllers\Admin\MenuController;
@@ -11,7 +12,6 @@ use App\Http\Controllers\Admin\PrinterController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RestaurantSettingController;
 use App\Http\Controllers\Admin\RestaurantTableController;
-use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Admin\ServiceController;
 use App\Http\Controllers\Admin\TagController;
 use App\Http\Controllers\Admin\UserController;
@@ -20,14 +20,83 @@ use App\Http\Controllers\CustomerMenuController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\KitchenController;
+use App\Http\Controllers\NativeSettingsController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StaffOrderController;
+use App\Http\Controllers\StorageFileController;
 use App\Http\Controllers\WaiterCallController;
 use App\Http\Controllers\WaiterController;
 use App\Http\Controllers\WaiterOrderController;
+use App\Http\Middleware\HandleInertiaRequests;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
+
+/*
+|--------------------------------------------------------------------------
+| Unlocalized routes
+|--------------------------------------------------------------------------
+|
+| Everything below the localized group lives under /{locale}/. These two
+| groups deliberately do not: neither is a page a human navigates to in a
+| chosen language, and both must resolve without the `languages` table being
+| readable — the whole point of the control panel is to still answer when
+| something underneath is broken.
+|
+*/
+
+/*
+ * Native control window — opened directly by NativeAppServiceProvider at
+ * boot, before any staff account exists, so it deliberately sits outside the
+ * `auth` group. `local-only` keeps it unreachable from other devices on the
+ * LAN (see EnsureRequestIsLocal for why that matters here).
+ *
+ * SESSION_DRIVER=database means the default `web` group's StartSession
+ * middleware reads the `sessions` table on every request — exactly the
+ * scenario this panel exists to survive, since it is often the first thing
+ * opened when the database isn't ready yet. Session/cookie/CSRF middleware
+ * is stripped so the panel never depends on the database just to render its
+ * own "database is down" status.
+ */
+Route::middleware('local-only')
+    ->withoutMiddleware([
+        EncryptCookies::class,
+        AddQueuedCookiesToResponse::class,
+        StartSession::class,
+        ShareErrorsFromSession::class,
+        VerifyCsrfToken::class,
+        HandleInertiaRequests::class,
+    ])
+    ->prefix('native')
+    ->group(function () {
+        Route::get('/panel', [NativeSettingsController::class, 'panel'])->name('native.panel');
+        Route::get('/panel/status', [NativeSettingsController::class, 'status'])->name('native.panel.status');
+        Route::post('/panel/update', [NativeSettingsController::class, 'update'])->name('native.panel.update');
+        Route::post('/panel/restart', [NativeSettingsController::class, 'restart'])->name('native.panel.restart');
+        Route::post('/panel/credentials/dismiss', [NativeSettingsController::class, 'dismissCredentials'])
+            ->name('native.panel.credentials.dismiss');
+    });
+
+/*
+ * Uploaded menu photos, logos and QR logos, served straight off the `public`
+ * disk instead of through the public/storage symlink.
+ *
+ * The packaged app can't rely on that symlink: NativePHP rewrites the
+ * storage path to a per-user application-data directory at boot
+ * (NativeServiceProvider::rewriteStoragePath), so a link created at build
+ * time — if the build even preserved it, which Windows archives generally
+ * don't — points at the developer's machine. Where the symlink does exist
+ * (Laragon, nginx) the web server answers the file before Laravel is
+ * reached, so this route simply never runs there.
+ */
+Route::get('/storage/{path}', StorageFileController::class)
+    ->where('path', '.*')
+    ->name('storage.serve');
 
 /*
 |--------------------------------------------------------------------------
@@ -96,6 +165,7 @@ Route::group([
 
         Route::get('settings', [RestaurantSettingController::class, 'edit'])->name('settings.edit');
         Route::post('settings', [RestaurantSettingController::class, 'update'])->name('settings.update');
+        Route::get('settings/wifi-qr', [RestaurantSettingController::class, 'wifiQrCode'])->name('settings.wifi-qr');
 
         Route::get('tables', [RestaurantTableController::class, 'index'])->name('tables.index');
         Route::post('tables', [RestaurantTableController::class, 'store'])->name('tables.store');

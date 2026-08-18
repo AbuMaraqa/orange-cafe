@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\StorePrinterRequest;
 use App\Http\Requests\Admin\UpdatePrinterRequest;
 use App\Models\Printer;
 use App\Services\Printing\PrinterTransport;
+use App\Services\Printing\UsbPrinterTransport;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,7 +23,10 @@ class PrinterController extends Controller
 
     public function create(): Response
     {
-        return Inertia::render('Admin/Printers/Form', ['printer' => null]);
+        return Inertia::render('Admin/Printers/Form', [
+            'printer' => null,
+            'usbTransportSupported' => UsbPrinterTransport::supported(),
+        ]);
     }
 
     public function store(StorePrinterRequest $request): RedirectResponse
@@ -32,9 +36,18 @@ class PrinterController extends Controller
         return to_route('admin.printers.index')->with('success', __('admin.printers.created'));
     }
 
+    /**
+     * usbTransportSupported tells the form whether this server can actually
+     * reach a USB printer at all — the packaged desktop app's PHP runtime
+     * has no FFI extension, so offering USB there silently produces a
+     * printer that never prints. See UsbPrinterTransport.
+     */
     public function edit(Printer $printer): Response
     {
-        return Inertia::render('Admin/Printers/Form', ['printer' => $printer]);
+        return Inertia::render('Admin/Printers/Form', [
+            'printer' => $printer,
+            'usbTransportSupported' => UsbPrinterTransport::supported(),
+        ]);
     }
 
     public function update(UpdatePrinterRequest $request, Printer $printer): RedirectResponse

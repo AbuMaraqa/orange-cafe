@@ -17,6 +17,14 @@ const props = defineProps({
         type: Object,
         default: null,
     },
+    // Whether the *server* can drive a USB printer, which is a separate
+    // question from whether this browser can detect one (usbSupported
+    // below). The packaged desktop app's PHP runtime has no FFI extension,
+    // so USB printers there would save fine and then never print.
+    usbTransportSupported: {
+        type: Boolean,
+        default: true,
+    },
 });
 
 const isEdit = computed(() => props.printer !== null);
@@ -122,6 +130,16 @@ function submit() {
                 </div>
 
                 <div v-else class="grid grid-cols-2 gap-4">
+                    <!-- Shown above the fields, not beside them: on the
+                         packaged desktop app nothing entered below can ever
+                         print, so it has to be read before the form is
+                         filled in rather than after. -->
+                    <p
+                        v-if="!usbTransportSupported"
+                        class="col-span-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                    >
+                        {{ $t('printers.usb_unsupported_server') }}
+                    </p>
                     <div class="col-span-2">
                         <SecondaryButton type="button" :disabled="!usbSupported || detectingUsb" @click="detectUsbPrinter">
                             {{ detectingUsb ? $t('printers.usb_detecting') : $t('printers.usb_detect') }}

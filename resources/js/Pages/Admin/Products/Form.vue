@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import Checkbox from '@/Components/Checkbox.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
@@ -68,6 +68,48 @@ const priceDisplay = computed({
 });
 
 const imagePreview = ref(props.product?.image_url ?? null);
+
+// Per-product overrides for shared modifiers — keyed by modifier id, kept
+// separate from `form` and folded in via form.transform() at submit time
+// so most modifiers (which never get a custom price) never enter the
+// payload at all. null means "inherit the modifier's global value".
+const overrides = reactive(
+    Object.fromEntries(
+        props.modifierGroups.flatMap((group) => group.modifiers.map((modifier) => {
+            const existing = props.product?.modifier_overrides?.[modifier.id];
+            return [modifier.id, {
+                price_cents: existing?.price_cents ?? null,
+                is_active: existing?.is_active ?? null,
+            }];
+        })),
+    ),
+);
+
+function setOverridePrice(modifierId, value) {
+    if (value === '' || value === null || value === undefined) {
+        overrides[modifierId].price_cents = null;
+        return;
+    }
+    const cents = Math.round(Number(value) * 100);
+    overrides[modifierId].price_cents = Number.isFinite(cents) ? cents : null;
+}
+
+function toggleOverrideAvailable(modifierId, checked) {
+    // Re-checking goes back to "inherit" (null) rather than storing an
+    // explicit true — keeps the overrides table free of no-op rows.
+    overrides[modifierId].is_active = checked ? null : false;
+}
+
+form.transform((data) => ({
+    ...data,
+    modifier_overrides: Object.entries(overrides)
+        .filter(([, o]) => o.price_cents !== null || o.is_active !== null)
+        .map(([modifierId, o]) => ({
+            modifier_id: Number(modifierId),
+            price_cents: o.price_cents,
+            is_active: o.is_active,
+        })),
+}));
 
 // Categories the product is already placed in — shown read-only here since
 // removing a placement can drop per-category customization (price
@@ -282,22 +324,77 @@ function submit() {
                     <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('common.active') }}</span>
                 </label>
 
-                <div v-if="modifierGroups.length > 0">
-                    <InputLabel :value="$t('nav.modifier_groups')" />
-                    <div class="mt-2 flex flex-wrap gap-2">
-                        <label
+                <div>
+                    <InputLabel :value="$t('admin.products.variations')" />
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.variations_hint') }}</p>
+
+                    <p v-if="modifierGroups.length === 0" class="mt-2 text-sm text-gray-400">
+                        {{ $t('admin.products.variations_none') }}
+                    </p>
+
+                    <div v-else class="mt-3 space-y-3">
+                        <div
                             v-for="group in modifierGroups"
                             :key="group.id"
-                            class="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm dark:border-gray-700"
+                            class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
                         >
-                            <Checkbox :checked="form.modifier_group_ids.includes(group.id)" @update:checked="(checked) => {
-                                form.modifier_group_ids = checked
-                                    ? [...form.modifier_group_ids, group.id]
-                                    : form.modifier_group_ids.filter((id) => id !== group.id);
-                            }" />
-                            {{ group.name }}
-                        </label>
+                            <label class="flex cursor-pointer items-center justify-between gap-3 bg-gray-50 px-3 py-2.5 dark:bg-gray-800/60">
+                                <span class="flex items-center gap-2">
+                                    <Checkbox :checked="form.modifier_group_ids.includes(group.id)" @update:checked="(checked) => {
+                                        form.modifier_group_ids = checked
+                                            ? [...form.modifier_group_ids, group.id]
+                                            : form.modifier_group_ids.filter((id) => id !== group.id);
+                                    }" />
+                                    <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ group.name }}</span>
+                                </span>
+                                <span class="text-xs text-gray-500">
+                                    {{ group.is_required ? $t('admin.modifier_groups.required') : $t('admin.modifier_groups.optional') }}
+                                    · {{ group.min_select }}–{{ group.max_select ?? '∞' }}
+                                </span>
+                            </label>
+
+                            <div
+                                v-if="form.modifier_group_ids.includes(group.id)"
+                                class="divide-y divide-gray-100 dark:divide-gray-800"
+                            >
+                                <div
+                                    v-for="modifier in group.modifiers"
+                                    :key="modifier.id"
+                                    class="flex flex-wrap items-center gap-3 px-3 py-2"
+                                >
+                                    <span
+                                        class="min-w-32 flex-1 text-sm"
+                                        :class="modifier.is_active ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 line-through'"
+                                    >{{ modifier.name }}</span>
+
+                                    <template v-if="modifier.is_active">
+                                        <span
+                                            class="w-16 shrink-0 text-end text-xs text-gray-400"
+                                            :title="$t('admin.products.base_price')"
+                                        >{{ (modifier.price_cents / 100).toFixed(2) }}</span>
+                                        <TextInput
+                                            :model-value="overrides[modifier.id].price_cents === null ? '' : (overrides[modifier.id].price_cents / 100).toFixed(2)"
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            class="w-28 shrink-0 text-sm"
+                                            :placeholder="$t('admin.products.custom_price_placeholder')"
+                                            @update:model-value="(value) => setOverridePrice(modifier.id, value)"
+                                        />
+                                        <label class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500">
+                                            <Checkbox
+                                                :checked="overrides[modifier.id].is_active !== false"
+                                                @update:checked="(checked) => toggleOverrideAvailable(modifier.id, checked)"
+                                            />
+                                            {{ $t('admin.products.available_for_product') }}
+                                        </label>
+                                    </template>
+                                    <span v-else class="text-xs text-amber-600">{{ $t('admin.products.unavailable_globally') }}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                    <InputError class="mt-2" :message="form.errors.modifier_overrides" />
                 </div>
 
                 <div v-if="tags.length > 0">

@@ -43,6 +43,7 @@ class MenuCatalogPresenter
             'categories.children.menuItems.product.modifierGroups.translations',
             'categories.children.menuItems.product.modifierGroups.modifiers' => fn ($q) => $q->where('is_active', true)->orderBy('sort_order'),
             'categories.children.menuItems.product.modifierGroups.modifiers.translations',
+            'categories.children.menuItems.product.modifierOverrides',
             'categories.menuItems' => fn ($q) => $q->where('is_active', true)->orderBy('sort_order'),
             'categories.menuItems.product' => fn ($q) => $q->where('is_active', true),
             'categories.menuItems.product.translations',
@@ -51,6 +52,7 @@ class MenuCatalogPresenter
             'categories.menuItems.product.modifierGroups.translations',
             'categories.menuItems.product.modifierGroups.modifiers' => fn ($q) => $q->where('is_active', true)->orderBy('sort_order'),
             'categories.menuItems.product.modifierGroups.modifiers.translations',
+            'categories.menuItems.product.modifierOverrides',
         ]);
 
         return $menus->map(fn (Menu $menu) => [
@@ -106,11 +108,16 @@ class MenuCatalogPresenter
                 'is_required' => $group->is_required,
                 'min_select' => $group->min_select,
                 'max_select' => $group->max_select,
-                'modifiers' => $group->modifiers->map(fn ($modifier) => [
-                    'id' => $modifier->id,
-                    'name' => $modifier->name,
-                    'price_cents' => $modifier->price_cents,
-                ]),
+                // Modifiers are shared across products by default, but this
+                // product may override a modifier's price or hide it via
+                // Product::modifierOverrides (see effectiveModifierPriceCents).
+                'modifiers' => $group->modifiers
+                    ->filter(fn ($modifier) => $product->isModifierActiveForProduct($modifier))
+                    ->map(fn ($modifier) => [
+                        'id' => $modifier->id,
+                        'name' => $modifier->name,
+                        'price_cents' => $product->effectiveModifierPriceCents($modifier),
+                    ])->values(),
             ]),
         ];
     }

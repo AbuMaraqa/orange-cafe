@@ -16,6 +16,13 @@ const props = defineProps({
         type: String,
         default: null,
     },
+    // The phone menu keeps long names on one line so the card stays a
+    // predictable height in a narrow column; the waiter tablet has the room
+    // and needs the whole name readable before tapping.
+    wrapName: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits(['add']);
@@ -69,7 +76,12 @@ function formatPrice(cents) {
         </div>
 
         <div class="min-w-0 flex-1 py-1">
-            <h4 class="truncate pe-6 text-sm font-semibold text-gray-900 dark:text-gray-100">{{ product.name }}</h4>
+            <h4
+                class="pe-6 text-sm font-semibold text-gray-900 dark:text-gray-100"
+                :class="wrapName ? 'break-words' : 'truncate'"
+            >
+                {{ product.name }}
+            </h4>
             <p v-if="product.description" class="mt-1 line-clamp-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
                 {{ product.description }}
             </p>

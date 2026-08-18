@@ -22,8 +22,29 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
-        <!-- <env name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <env name="DB_DATABASE" value=":memory:"/> -->
+        <!-- Uncommented deliberately. Without these the suite runs against
+             whatever DB_* the developer's .env points at, and any test using
+             RefreshDatabase then wipes the working database. -->
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+
+        <!-- Point the framework's caches at paths that are never written.
+
+             A cached config makes the two lines above inert: config/*.php is
+             no longer evaluated, so env() is frozen to whatever was in .env
+             when the cache was built, and the suite silently runs against the
+             real database file instead of :memory:. That is not hypothetical
+             here — `php artisan native:serve` leaves a config cache behind,
+             and a full test run against the real file then wiped the
+             development database.
+
+             Laravel resolves each cache path from these env vars
+             (Application::normalizeCachePath), so redirecting them to files
+             that do not exist makes the suite ignore any cache the developer
+             happens to have. -->
+        <env name="APP_CONFIG_CACHE" value="bootstrap/cache/config.testing.php"/>
+        <env name="APP_EVENTS_CACHE" value="bootstrap/cache/events.testing.php"/>
+        <env name="APP_ROUTES_CACHE" value="bootstrap/cache/routes.testing.php"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

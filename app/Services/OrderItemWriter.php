@@ -27,7 +27,7 @@ class OrderItemWriter
         $addedCents = 0;
 
         foreach ($lines as $line) {
-            $menuItem = MenuItem::with('product.modifierGroups.modifiers', 'category')->findOrFail($line['menu_item_id']);
+            $menuItem = MenuItem::with('product.modifierGroups.modifiers', 'product.modifierOverrides', 'category')->findOrFail($line['menu_item_id']);
             $product = $menuItem->product;
 
             if (! $menuItem->is_active || ! $product->is_active) {
@@ -35,7 +35,11 @@ class OrderItemWriter
             }
 
             $modifiers = $this->resolveModifiers($product, $line['modifier_ids'] ?? []);
-            $unitPrice = $menuItem->effectivePriceCents() + $modifiers->sum('price_cents');
+            // A modifier's price can be overridden per product (see
+            // Product::effectiveModifierPriceCents), so this — not the
+            // modifier's own price_cents — is the authoritative amount.
+            $unitPrice = $menuItem->effectivePriceCents()
+                + $modifiers->sum(fn (Modifier $modifier) => $product->effectiveModifierPriceCents($modifier));
             $subtotal = $unitPrice * $line['quantity'];
             $addedCents += $subtotal;
 
@@ -55,7 +59,7 @@ class OrderItemWriter
                     'modifier_id' => $modifier->id,
                     'modifier_group_name' => $modifier->group->name,
                     'modifier_name' => $modifier->name,
-                    'price_cents' => $modifier->price_cents,
+                    'price_cents' => $product->effectiveModifierPriceCents($modifier),
                 ]);
             }
         }
@@ -68,7 +72,9 @@ class OrderItemWriter
      */
     protected function resolveModifiers(Product $product, array $modifierIds): Collection
     {
-        $availableModifiers = $product->modifierGroups->flatMap->modifiers->keyBy('id');
+        $availableModifiers = $product->modifierGroups->flatMap->modifiers
+            ->filter(fn (Modifier $modifier) => $product->isModifierActiveForProduct($modifier))
+            ->keyBy('id');
         $selected = collect($modifierIds)->map(fn ($id) => $availableModifiers->get($id))->filter();
 
         if ($selected->count() !== count($modifierIds)) {
