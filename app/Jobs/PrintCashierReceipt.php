@@ -44,8 +44,16 @@ class PrintCashierReceipt implements ShouldQueue
 
     public function handle(CashierReceiptPrinterService $service): void
     {
-        if (! $service->printToPrinter($this->order, $this->printer)) {
-            throw new RuntimeException("Cashier receipt for order {$this->order->reference} at printer {$this->printer->name} could not be printed — will retry.");
+        if ($service->printToPrinter($this->order, $this->printer)) {
+            return;
         }
+
+        if ($standIn = $service->printToFallback($this->order, $this->printer)) {
+            Log::warning("Cashier receipt for order {$this->order->reference} printed on {$standIn->name} because {$this->printer->name} could not be reached.");
+
+            return;
+        }
+
+        throw new RuntimeException("Cashier receipt for order {$this->order->reference} at printer {$this->printer->name} could not be printed, and no stand-in printer accepted it — will retry.");
     }
 }

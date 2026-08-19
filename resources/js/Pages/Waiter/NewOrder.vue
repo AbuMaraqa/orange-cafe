@@ -170,8 +170,8 @@ function submit() {
             {{ existingOrder ? $t('waiter.add_items_to', { table: preselectedTable?.label }) : $t('waiter.new_order') }}
         </template>
 
-        <div class="grid gap-6 lg:grid-cols-3">
-            <div class="lg:col-span-2">
+        <div class="grid gap-6 md:grid-cols-3">
+            <div class="md:col-span-2">
                 <div v-if="menus.length > 1" class="mb-3 flex gap-2 overflow-x-auto pb-1">
                     <button
                         v-for="menu in menus"
@@ -228,7 +228,7 @@ function submit() {
                 <section v-for="category in visibleCategories" :key="category.id" class="mb-6">
                     <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">{{ category.name }}</h2>
 
-                    <div v-if="category.products.length > 0" class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <div v-if="category.products.length > 0" class="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
                         <ProductCard
                             v-for="product in category.products"
                             :key="product.id"
@@ -241,7 +241,7 @@ function submit() {
 
                     <div v-for="sub in category.subcategories" :key="sub.id" class="mt-4">
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-400">{{ sub.name }}</h3>
-                        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <div class="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
                             <ProductCard
                                 v-for="product in sub.products"
                                 :key="product.id"
@@ -256,7 +256,7 @@ function submit() {
             </div>
 
             <!-- Order summary / checkout -->
-            <div class="lg:sticky lg:top-6 lg:self-start">
+            <div class="md:sticky md:top-6 md:self-start">
                 <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
                     <h3 class="mb-3 font-semibold text-gray-900 dark:text-gray-100">{{ $t('menu.your_order') }}</h3>
 
@@ -267,9 +267,9 @@ function submit() {
                             <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ line.name }}</p>
                             <p v-if="line.modifiers.length" class="text-xs text-gray-500">{{ line.modifiers.map((m) => m.name).join(', ') }}</p>
                             <div class="mt-1 flex items-center gap-2">
-                                <button type="button" class="flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-xs dark:border-gray-600" @click="updateQuantity(line.id, line.quantity - 1)">−</button>
+                                <button type="button" class="flex h-9 w-9 items-center justify-center rounded-full border border-gray-300 text-base leading-none dark:border-gray-600" @click="updateQuantity(line.id, line.quantity - 1)">−</button>
                                 <span class="w-4 text-center text-sm">{{ line.quantity }}</span>
-                                <button type="button" class="flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-xs dark:border-gray-600" @click="updateQuantity(line.id, line.quantity + 1)">+</button>
+                                <button type="button" class="flex h-9 w-9 items-center justify-center rounded-full border border-gray-300 text-base leading-none dark:border-gray-600" @click="updateQuantity(line.id, line.quantity + 1)">+</button>
                             </div>
                         </div>
                         <p class="shrink-0 text-sm font-medium text-gray-900 dark:text-gray-100">{{ formatPrice(line.unit_price_cents * line.quantity) }}</p>

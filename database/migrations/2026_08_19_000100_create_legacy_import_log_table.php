@@ -1,0 +1,38 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Remembers every row LegacyOrangeDataSeeder has already handed over, so a
+ * second run can tell "this row is new" apart from "the cafe deleted this
+ * row on purpose".
+ *
+ * Without it the seeder is idempotent in the weak sense only: it never
+ * updates or deletes, but a product the cafe removed from the menu is simply
+ * missing, so the next run treats it as absent and puts it back — dishes the
+ * kitchen stopped making reappearing on the customer menu at their original
+ * prices.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('legacy_import_log', function (Blueprint $table) {
+            $table->id();
+            $table->string('source_table');
+            $table->string('source_id');
+            $table->timestamp('imported_at')->useCurrent();
+
+            // One row per (table, id): the seeder consults this on every run
+            // and must never log the same row twice.
+            $table->unique(['source_table', 'source_id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('legacy_import_log');
+    }
+};

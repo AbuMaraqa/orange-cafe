@@ -18,6 +18,15 @@ trait BroadcastsSafely
             if ($toOthers) {
                 $broadcast->toOthers();
             }
+
+            // broadcast() sends nothing by itself: it returns a
+            // PendingBroadcast that dispatches the event from its
+            // destructor. Left to fall out of scope on its own, that happens
+            // *after* this try block — so an unreachable Reverb threw right
+            // past the catch below and the customer got a 500 for an order
+            // that had already been saved. Dropping the last reference here
+            // runs the destructor while it is still guarded.
+            $broadcast = null;
         } catch (\Throwable $e) {
             report($e);
         }

@@ -6,6 +6,7 @@ use App\Jobs\PrintOrderTicket;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Printer;
+use App\Services\Printing\FallbackPrinterResolver;
 use App\Services\Printing\Concerns\SkipsAlreadyQueuedPrints;
 use App\Services\Printing\EscPosImageRenderer;
 use App\Services\Printing\PrinterTransport;
@@ -32,6 +33,7 @@ class KitchenPrinterService
     public function __construct(
         private EscPosImageRenderer $renderer,
         private PrinterTransport $transport,
+        private FallbackPrinterResolver $fallbacks,
     ) {
     }
 
@@ -62,7 +64,7 @@ class KitchenPrinterService
         }
     }
 
-    public function printToStation(Order $order, Printer $printer, string $station): bool
+    public function printToStation(Order $order, Printer $printer, string $station, ?string $notice = null): bool
     {
         $order->loadMissing('items.modifiers', 'table');
 
@@ -72,15 +74,36 @@ class KitchenPrinterService
             return true;
         }
 
-        return $this->transport->send($printer, $this->buildTicket($order, $items));
+        return $this->transport->send($printer, $this->buildTicket($order, $items, $notice));
     }
 
-    protected function buildTicket(Order $order, Collection $items): string
+    /**
+     * Prints this station's ticket on a stand-in printer after the real one
+     * could not be reached. Returns the printer that took it, or null when
+     * none of them would either.
+     *
+     * Deliberately stops at the first success: the ticket has been printed,
+     * and a second copy from a later retry is a second order as far as the
+     * kitchen is concerned.
+     */
+    public function printToFallback(Order $order, Printer $failed, string $station): ?Printer
+    {
+        foreach ($this->fallbacks->forKitchen($failed) as $standIn) {
+            if ($this->printToStation($order, $standIn, $station, $this->fallbacks->notice($failed))) {
+                return $standIn;
+            }
+        }
+
+        return null;
+    }
+
+    protected function buildTicket(Order $order, Collection $items, ?string $notice = null): string
     {
         return $this->renderer->render('pdf.kitchen-ticket', [
             'order' => $order,
             'items' => $items,
             'labels' => __('pdf'),
+            'notice' => $notice,
         ], 'rtl', max(60, 40 + $items->count() * 16));
     }
 }

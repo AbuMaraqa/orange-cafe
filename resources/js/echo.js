@@ -17,13 +17,20 @@ const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content |
 // The host is deliberately never taken from the server: it would have to
 // guess which of its own addresses this particular client can reach. The
 // address the page was loaded from is already the right answer for a waiter's
-// tablet, the kitchen screen and a customer's phone alike. An explicitly
-// configured, non-loopback build-time host still wins, for a hosted
-// deployment served through a real domain.
+// tablet, the kitchen screen and a customer's phone alike.
+//
+// A build-time host only wins when it is a real hostname. An IP literal never
+// does, however deliberately it was set: this app is installed on a machine
+// whose LAN address is handed out by the cafe's router, so an address baked
+// into the bundle is right until the next DHCP lease and then silently wrong
+// — every device keeps loading pages fine while no live update ever arrives
+// again. window.location.hostname cannot go stale that way.
 const configuredHost = import.meta.env.VITE_REVERB_HOST;
-const wsHost = (!configuredHost || configuredHost === 'localhost' || configuredHost === '127.0.0.1')
-    ? window.location.hostname
-    : configuredHost;
+const isIpLiteral = (host) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':');
+const useConfigured = configuredHost
+    && configuredHost !== 'localhost'
+    && !isIpLiteral(configuredHost);
+const wsHost = useConfigured ? configuredHost : window.location.hostname;
 
 // The port and scheme, in contrast, are the server's to declare — it is the
 // one that knows which port Reverb was actually started on.

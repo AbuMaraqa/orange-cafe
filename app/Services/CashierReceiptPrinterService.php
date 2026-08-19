@@ -6,6 +6,7 @@ use App\Jobs\OpenCashDrawer;
 use App\Jobs\PrintCashierReceipt;
 use App\Models\Order;
 use App\Models\Printer;
+use App\Services\Printing\FallbackPrinterResolver;
 use App\Services\Printing\Concerns\SkipsAlreadyQueuedPrints;
 use App\Services\Printing\EscPosImageRenderer;
 use App\Services\Printing\PrinterTransport;
@@ -35,6 +36,7 @@ class CashierReceiptPrinterService
         private PdfService $pdf,
         private RestaurantSettings $branding,
         private LanguageRegistry $languages,
+        private FallbackPrinterResolver $fallbacks,
     ) {
     }
 
@@ -62,11 +64,28 @@ class CashierReceiptPrinterService
         }
     }
 
-    public function printToPrinter(Order $order, Printer $printer): bool
+    public function printToPrinter(Order $order, Printer $printer, ?string $notice = null): bool
     {
         $order->loadMissing('items.modifiers', 'table');
 
-        return $this->transport->send($printer, $this->buildReceipt($order));
+        return $this->transport->send($printer, $this->buildReceipt($order, $notice));
+    }
+
+    /**
+     * Prints the receipt on any non-till printer after the till printer
+     * could not be reached — a receipt in the kitchen is at least a receipt
+     * somebody can carry out, which is more than a retry queue offers a
+     * customer standing at the counter.
+     */
+    public function printToFallback(Order $order, Printer $failed): ?Printer
+    {
+        foreach ($this->fallbacks->forCashier($failed) as $standIn) {
+            if ($this->printToPrinter($order, $standIn, $this->fallbacks->notice($failed))) {
+                return $standIn;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -93,7 +112,7 @@ class CashierReceiptPrinterService
         return $this->transport->send($printer, $bytes);
     }
 
-    protected function buildReceipt(Order $order): string
+    protected function buildReceipt(Order $order, ?string $notice = null): string
     {
         $direction = $this->languages->direction(app()->getLocale());
 
@@ -104,6 +123,7 @@ class CashierReceiptPrinterService
             : null;
 
         return $this->renderer->render('pdf.invoice-thermal', [
+            'notice' => $notice,
             'order' => $order,
             'branding' => $this->branding,
             'logoPath' => $logoPath,

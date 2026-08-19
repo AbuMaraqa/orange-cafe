@@ -30,6 +30,34 @@ class OrderController extends Controller
         // waiter reviews and confirms it (see StaffOrderController::confirm()).
         $placedByStaff = $request->user()?->hasAnyRole(['waiter', 'admin']) ?? false;
 
+        // Five people sitting at one table each scan the same QR and order
+        // from their own phone. Their items belong on that table's one open
+        // ticket: five separate orders would reach the waiter as five things
+        // to confirm, print as five kitchen tickets for one table, and bill
+        // as five totals that somebody has to add up by hand.
+        //
+        // Only a ticket the waiter has not confirmed yet can be joined. Once
+        // it is confirmed the kitchen is already cooking it, so a later
+        // addition has to be a round of its own — it needs the waiter's eyes
+        // and its own trip to the pass, not a silent edit to something that
+        // has already been printed.
+        if ($joinable = $this->joinableTableOrder($data, $placedByStaff)) {
+            DB::transaction(function () use ($joinable, $data) {
+                $added = $this->itemWriter->addLines($joinable, $data['items']);
+                $joinable->update(['total_cents' => $joinable->total_cents + $added]);
+            });
+
+            $joinable->refresh();
+
+            // Same event as a brand-new order on purpose: the waiter screen
+            // upserts on it, so the table's card updates in place with the
+            // added items and alerts whoever is on the floor. An addition
+            // nobody notices is the same as an order nobody took.
+            $this->safeBroadcast(new OrderPlaced($joinable));
+
+            return to_route('menu.orders.show', $joinable)->with('success', __('menu.order_placed'));
+        }
+
         $order = DB::transaction(function () use ($data, $request, $placedByStaff) {
             $order = Order::create([
                 'table_id' => $data['table_id'] ?? null,
@@ -61,6 +89,29 @@ class OrderController extends Controller
         }
 
         return to_route('menu.orders.show', $order)->with('success', __('menu.order_placed'));
+    }
+
+    /**
+     * The table's open, not-yet-confirmed ticket that this customer's items
+     * should join, or null when a new one has to be created.
+     *
+     * Staff are excluded: a waiter entering an order has already reviewed it
+     * and it goes straight to the kitchen, so folding it into a pending
+     * customer ticket would leave those items unprinted.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function joinableTableOrder(array $data, bool $placedByStaff): ?Order
+    {
+        if ($placedByStaff || empty($data['table_id'])) {
+            return null;
+        }
+
+        return Order::query()
+            ->where('table_id', $data['table_id'])
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
     }
 
     public function show(Order $order): Response

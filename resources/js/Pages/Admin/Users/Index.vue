@@ -39,7 +39,7 @@ const roleClasses = {
             </Link>
         </div>
 
-        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
                 <thead class="bg-gray-50 dark:bg-gray-900/60">
                     <tr class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">

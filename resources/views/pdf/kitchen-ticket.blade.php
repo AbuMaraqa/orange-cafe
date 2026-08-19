@@ -11,9 +11,16 @@
         .modifiers { color: #333; font-size: 12px; font-weight: normal; }
         .notes { font-size: 12px; font-weight: normal; font-style: italic; }
         .footer { margin-top: 8px; font-size: 10.5px; color: #4b5563; }
+        .fallback-notice { font-size: 12px; font-weight: bold; border: 2px solid #000; padding: 4px; margin-bottom: 6px; }
     </style>
 </head>
 <body>
+    {{-- Printed on a stand-in printer: without this the ticket reads as a
+         stray duplicate to whoever finds it at the till. --}}
+    @if (!empty($notice))
+        <div class="fallback-notice">{{ $notice }}</div>
+    @endif
+
     <div class="order-ref">{{ $order->reference }}</div>
 
     <div class="meta-line">{{ $labels['table'] }}: {{ $order->table?->label ?? $order->table_number ?? '—' }}</div>

@@ -61,8 +61,8 @@ class NativeControlPanelTest extends TestCase
 
     /**
      * Saving must not silently drop a key, because nothing re-reads .env
-     * until the app is restarted — a lost value only surfaces as a service
-     * failing to come back up.
+     * until the services are restarted — a lost value only surfaces as a
+     * service failing to come back up.
      */
     public function test_saving_settings_writes_every_key_to_the_env_file(): void
     {
@@ -71,7 +71,6 @@ class NativeControlPanelTest extends TestCase
 
         try {
             $this->postJson(route('native.panel.update'), [
-                'reverb_host' => '192.168.1.50',
                 'reverb_port' => 9001,
                 'lan_server_port' => 8001,
                 'public_base_url' => 'http://192.168.1.50:8001/',
@@ -82,13 +81,72 @@ class NativeControlPanelTest extends TestCase
                 'VITE_REVERB_HOST', 'VITE_REVERB_PORT',
             ]);
 
-            $this->assertSame('192.168.1.50', $written['REVERB_HOST']);
             $this->assertSame('9001', $written['REVERB_PORT']);
             $this->assertSame('8001', $written['LAN_SERVER_PORT']);
-            $this->assertSame('192.168.1.50', $written['VITE_REVERB_HOST']);
             $this->assertSame('9001', $written['VITE_REVERB_PORT']);
             // Trailing slash stripped, so it concatenates cleanly with paths.
             $this->assertSame('http://192.168.1.50:8001', $written['PUBLIC_BASE_URL']);
+        } finally {
+            file_put_contents($envPath, $original);
+        }
+    }
+
+    /**
+     * The Reverb address is not a setting any more, and saving pins it back
+     * to loopback. An install configured with the machine's LAN address —
+     * which the old editable field invited — kept working only until the
+     * router handed out a different lease, and then lost every live update
+     * while every page still loaded normally.
+     */
+    public function test_saving_pins_the_reverb_host_to_loopback(): void
+    {
+        $envPath = base_path('.env');
+        $original = file_get_contents($envPath);
+
+        try {
+            app(NativeEnvSettings::class)->set([
+                'REVERB_HOST' => '192.168.1.50',
+                'VITE_REVERB_HOST' => '192.168.1.50',
+            ]);
+
+            $this->postJson(route('native.panel.update'), [
+                'reverb_port' => 8080,
+                'lan_server_port' => 8000,
+                'public_base_url' => null,
+            ])->assertOk();
+
+            $written = app(NativeEnvSettings::class)->get(['REVERB_HOST', 'VITE_REVERB_HOST']);
+
+            $this->assertSame('127.0.0.1', $written['REVERB_HOST']);
+            // Blank, so the compiled bundle carries no address to go stale;
+            // resources/js/echo.js falls back to the page's own host.
+            $this->assertSame('', $written['VITE_REVERB_HOST']);
+        } finally {
+            file_put_contents($envPath, $original);
+        }
+    }
+
+    /**
+     * A host sent by a client that still has the old form cached must not be
+     * able to put a LAN address back into .env.
+     */
+    public function test_a_submitted_reverb_host_is_ignored(): void
+    {
+        $envPath = base_path('.env');
+        $original = file_get_contents($envPath);
+
+        try {
+            $this->postJson(route('native.panel.update'), [
+                'reverb_host' => '192.168.1.50',
+                'reverb_port' => 8080,
+                'lan_server_port' => 8000,
+                'public_base_url' => null,
+            ])->assertOk();
+
+            $this->assertSame(
+                '127.0.0.1',
+                app(NativeEnvSettings::class)->get(['REVERB_HOST'])['REVERB_HOST']
+            );
         } finally {
             file_put_contents($envPath, $original);
         }

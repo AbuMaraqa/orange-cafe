@@ -216,6 +216,24 @@ return [
     ],
 
     /**
+     * Whether a fresh install loads the real Orange Cafe catalog and staff
+     * (LegacyOrangeDataSeeder) instead of coming up empty.
+     *
+     * Read through config() and not env() at the point of use, and that is
+     * the whole reason this key exists. The packaged app runs `artisan
+     * optimize` on every launch, which caches the config — and once
+     * bootstrap/cache/config.php exists Laravel stops loading .env at all, so
+     * every env() call outside a config file returns null. Reading the flag
+     * directly from env() therefore always evaluated to false in the one
+     * place it mattered: the customer's machine. Here it is resolved while
+     * the cache is being built, so the value survives.
+     *
+     * Keep it false for a build handed to any other cafe — the data is one
+     * specific business's menu, prices and staff logins.
+     */
+    'load_legacy_data' => env('FIRST_RUN_LOAD_LEGACY_DATA', false),
+
+    /**
      * Define your own scripts to run before and after the build process.
      *
      * fetch-poppler.ps1 downloads (and caches) the pdftoppm binary into

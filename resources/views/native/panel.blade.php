@@ -297,17 +297,15 @@
                     <input type="number" name="lan_server_port"
                            value="{{ $network['editable']['LAN_SERVER_PORT'] ?: $network['port'] }}">
                 </div>
-                <div class="grid2">
-                    <div class="field">
-                        <label>Reverb Host</label>
-                        <input type="text" name="reverb_host"
-                               value="{{ $network['editable']['REVERB_HOST'] ?: '127.0.0.1' }}">
-                    </div>
-                    <div class="field">
-                        <label>Reverb Port</label>
-                        <input type="number" name="reverb_port"
-                               value="{{ $network['editable']['REVERB_PORT'] ?: 8080 }}">
-                    </div>
+                <div class="field">
+                    <label>منفذ البث اللحظي (Reverb Port)</label>
+                    <input type="number" name="reverb_port"
+                           value="{{ $network['editable']['REVERB_PORT'] ?: 8080 }}">
+                    <p class="help">
+                        عنوان البث اللحظي هو نفسه عنوان الخادم أعلاه — كل جهاز يتصل بالعنوان
+                        الذي فتح منه الصفحة، فلا حاجة لضبطه يدوياً ولا يتأثر بتغيّر عنوان
+                        الجهاز على الشبكة.
+                    </p>
                 </div>
                 <div class="field">
                     <label>عنوان رموز QR للطاولات</label>
@@ -328,6 +326,15 @@
             <p class="muted" style="margin-bottom:2px;">التغييرات لا تُطبَّق إلا بعد إعادة التشغيل.</p>
             <button type="button" class="btn-danger" id="restartBtn">إعادة تشغيل الخادم</button>
             <div class="msg" id="restartMsg"></div>
+
+            <hr class="divider">
+
+            <p class="muted" style="margin-bottom:2px;">
+                تحميل قائمة المطعم والحسابات على تنصيب فاضي. آمن تكرّره — الأصناف
+                الموجودة ما بتتغيّر.
+            </p>
+            <button type="button" class="btn-primary" id="seederBtn">Seeder</button>
+            <div class="msg" id="seederMsg"></div>
         </div>
     </main>
 
@@ -335,6 +342,8 @@
         const statusUrl = @json(route('native.panel.status'));
         const updateUrl = @json(route('native.panel.update'));
         const restartUrl = @json(route('native.panel.restart'));
+        const copyUrl = @json(route('native.panel.copy'));
+        const loadDataUrl = @json(route('native.panel.load-data'));
         const dismissCredsUrl = @json(route('native.panel.credentials.dismiss'));
 
         const post = (url, body) => fetch(url, {
@@ -415,15 +424,30 @@
         refreshStatus();
         setInterval(refreshStatus, 5000);
 
+        // navigator.clipboard is only defined in a secure context, and this
+        // window is plain http on a per-launch port from NativePHP's internal
+        // server — so in the packaged app it is usually missing outright.
+        // Electron's own clipboard has no such restriction, and is reached
+        // through the server because this page has no preload bridge.
+        async function copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch {
+                // fall through
+            }
+
+            try {
+                return (await post(copyUrl, { text })).ok;
+            } catch {
+                return false;
+            }
+        }
+
         document.querySelectorAll('.lan-link').forEach((btn) => {
             btn.addEventListener('click', async () => {
                 const hint = btn.querySelector('.hint');
-                try {
-                    await navigator.clipboard.writeText(btn.dataset.url);
-                    hint.textContent = 'تم النسخ ✓';
-                } catch {
-                    hint.textContent = 'تعذر النسخ';
-                }
+                hint.textContent = await copyText(btn.dataset.url) ? 'تم النسخ ✓' : 'تعذر النسخ';
                 setTimeout(() => { hint.textContent = 'نسخ'; }, 1500);
             });
         });
@@ -437,7 +461,6 @@
 
             try {
                 const res = await post(updateUrl, {
-                    reverb_host: form.reverb_host.value,
                     reverb_port: Number(form.reverb_port.value),
                     lan_server_port: Number(form.lan_server_port.value),
                     public_base_url: form.public_base_url.value.trim() || null,
@@ -471,17 +494,51 @@
             }
         });
 
-        document.getElementById('restartBtn').addEventListener('click', async () => {
-            if (!confirm('سيتوقف الخادم مؤقتاً لكل الأجهزة على الشبكة — متأكد؟')) return;
+        document.getElementById('seederBtn').addEventListener('click', async (e) => {
+            if (!confirm('سيتم تحميل القائمة والحسابات. متأكد؟')) return;
 
-            // On success this window closes and a new one opens, so there is
-            // no "done" state to render — only a failure needs reporting.
-            setMsg('restartMsg', 'جارِ إعادة التشغيل… سيغلق التطبيق ويفتح خلال ثوانٍ.');
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            setMsg('seederMsg', 'جارِ التحميل… قد يستغرق دقيقة.');
 
             try {
-                if (!(await post(restartUrl)).ok) throw new Error();
+                const res = await post(loadDataUrl);
+                const body = await res.json();
+
+                if (!res.ok || !body.success) throw new Error(body.error || '');
+
+                const c = body.counts || {};
+                setMsg('seederMsg', `تم — ${c.products ?? 0} صنف، ${c.categories ?? 0} تصنيف، ${c.users ?? 0} مستخدم.`, 'ok');
+            } catch (err) {
+                setMsg('seederMsg', err.message || 'تعذر تحميل البيانات.', 'bad');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('restartBtn').addEventListener('click', async (e) => {
+            if (!confirm('سيتوقف الخادم مؤقتاً لكل الأجهزة على الشبكة — متأكد؟')) return;
+
+            // The window itself stays open now: only the four child services
+            // are stopped and started again, and this page is served by a
+            // different process from the one that serves the tablets. So
+            // there IS a result to wait for and report, unlike the old
+            // relaunch-the-whole-app behaviour.
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            setMsg('restartMsg', 'جارِ إعادة تشغيل الخدمات…');
+
+            try {
+                const res = await post(restartUrl);
+                if (!res.ok) throw new Error();
+
+                const count = ((await res.json()).restarted || []).length;
+                setMsg('restartMsg', `تمت إعادة تشغيل ${count} خدمات — تم تطبيق الإعدادات.`, 'ok');
+                refreshStatus();
             } catch {
                 setMsg('restartMsg', 'تعذر إعادة التشغيل — أغلق التطبيق وشغّله يدوياً.', 'bad');
+            } finally {
+                btn.disabled = false;
             }
         });
     </script>

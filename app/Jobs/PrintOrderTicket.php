@@ -65,12 +65,27 @@ class PrintOrderTicket implements ShouldQueue
 
     public function handle(KitchenPrinterService $service): void
     {
-        if (! $service->printToStation($this->order, $this->printer, $this->station)) {
-            // Throwing (instead of just returning) is what makes the
-            // queue retry this job per retryUntil()/backoff() above — a
-            // plain return would mark the job "successful" even though
-            // this printer was never actually reached.
-            throw new RuntimeException("Kitchen ticket for order {$this->order->reference} at printer {$this->printer->name} could not be printed — will retry.");
+        if ($service->printToStation($this->order, $this->printer, $this->station)) {
+            return;
         }
+
+        // The station printer is unreachable. Rather than only queueing a
+        // retry — which leaves the kitchen with no ticket for as long as the
+        // printer stays dead — put the ticket out on the till printer, where
+        // someone can pick it up and walk it over.
+        if ($standIn = $service->printToFallback($this->order, $this->printer, $this->station)) {
+            Log::warning("Kitchen ticket for order {$this->order->reference} printed on {$standIn->name} because {$this->printer->name} could not be reached.");
+
+            // Done, deliberately: the ticket exists on paper. Retrying the
+            // original printer once it comes back would put a second copy of
+            // the same order in front of the kitchen.
+            return;
+        }
+
+        // Nothing could print it anywhere. Throwing (instead of returning)
+        // is what makes the queue retry per retryUntil()/backoff() above — a
+        // plain return would mark the job "successful" even though no paper
+        // ever came out.
+        throw new RuntimeException("Kitchen ticket for order {$this->order->reference} at printer {$this->printer->name} could not be printed, and no stand-in printer accepted it — will retry.");
     }
 }

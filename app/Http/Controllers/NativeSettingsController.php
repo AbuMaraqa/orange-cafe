@@ -5,14 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\Printer;
 use App\Services\Native\NativeEnvSettings;
 use App\Services\Native\NativeNetworkInfo;
+use App\Services\Native\NativeServices;
 use App\Services\Native\PublicUrlResolver;
 use App\Services\Printing\PopplerBinary;
 use App\Services\Printing\UsbPrinterTransport;
 use Illuminate\Http\Request;
+use Database\Seeders\LegacyOrangeDataSeeder;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Native\Laravel\Client\Client;
-use Native\Laravel\Facades\App as NativeApp;
+use Native\Laravel\Facades\Clipboard;
 use Native\Laravel\Facades\Settings as NativeSettings;
 
 /**
@@ -32,7 +35,7 @@ class NativeSettingsController extends Controller
      * form, the validator and the .env writer all have to agree on them.
      */
     private const EDITABLE_KEYS = [
-        'REVERB_HOST', 'REVERB_PORT', 'LAN_SERVER_PORT', 'PUBLIC_BASE_URL',
+        'REVERB_PORT', 'LAN_SERVER_PORT', 'PUBLIC_BASE_URL',
     ];
 
     public function panel(
@@ -119,10 +122,13 @@ class NativeSettingsController extends Controller
         // now. After a save-without-restart those differ, and probing the
         // saved-but-not-yet-applied address reports a healthy Reverb as down.
         // See NativeAppServiceProvider::recordRunningConfig().
-        $saved = $envSettings->get(['REVERB_HOST', 'REVERB_PORT', 'LAN_SERVER_PORT']);
+        $saved = $envSettings->get(['REVERB_PORT', 'LAN_SERVER_PORT']);
         $running = $this->runningConfig() ?? $saved;
 
-        $reverbHost = $running['REVERB_HOST'] ?: '127.0.0.1';
+        // Always loopback: Reverb binds 0.0.0.0 on this machine, so this asks
+        // "did it come up here" — the only question this panel can answer.
+        // Which address the tablets dial is decided by their own page's host.
+        $reverbHost = '127.0.0.1';
         $reverbPort = (int) ($running['REVERB_PORT'] ?: 8080);
         $lanPort = (int) ($running['LAN_SERVER_PORT'] ?: 8000);
 
@@ -178,7 +184,6 @@ class NativeSettingsController extends Controller
     public function update(Request $request, NativeEnvSettings $envSettings)
     {
         $validated = $request->validate([
-            'reverb_host' => ['required', 'string', 'max:255'],
             'reverb_port' => ['required', 'integer', 'min:1', 'max:65535'],
             'lan_server_port' => ['required', 'integer', 'min:1', 'max:65535'],
             // Blank is meaningful: it hands the choice back to
@@ -187,18 +192,30 @@ class NativeSettingsController extends Controller
         ]);
 
         $envSettings->set([
-            'REVERB_HOST' => $validated['reverb_host'],
             'REVERB_PORT' => (string) $validated['reverb_port'],
             'LAN_SERVER_PORT' => (string) $validated['lan_server_port'],
             'PUBLIC_BASE_URL' => rtrim((string) ($validated['public_base_url'] ?? ''), '/'),
 
+            // Not editable any more, and pinned on every save so an install
+            // that was configured with a machine address before this became
+            // automatic repairs itself.
+            //
+            // REVERB_HOST is only ever used by THIS app to publish events
+            // into Reverb (config/broadcasting.php), and Reverb runs on this
+            // same machine — so loopback is both correct and the only value
+            // that keeps working when the router hands the machine a new IP.
+            // Pointing it at the LAN address was the failure mode: a changed
+            // DHCP lease silently killed every live update in the building.
+            'REVERB_HOST' => '127.0.0.1',
+
             // VITE_* are compiled into the JS bundle at build time, so
             // rewriting them here changes nothing for the already-built
-            // assets — resources/js/echo.js is what makes the browser dial
-            // the right host, by falling back to window.location.hostname.
-            // They are still kept in step so a rebuild from this .env
-            // produces a bundle that matches the server.
-            'VITE_REVERB_HOST' => $validated['reverb_host'],
+            // assets. Kept in step so a rebuild from this .env matches, and
+            // deliberately left without a host: resources/js/echo.js dials
+            // whatever host the page itself was loaded from, which is the
+            // one address that is right for a waiter's tablet, the kitchen
+            // screen and a customer's phone at the same time.
+            'VITE_REVERB_HOST' => '',
             'VITE_REVERB_PORT' => (string) $validated['reverb_port'],
         ]);
 
@@ -206,28 +223,104 @@ class NativeSettingsController extends Controller
     }
 
     /**
-     * Restarts the whole native app so every child process (Reverb, LAN
-     * server, queue, scheduler) re-reads the just-saved .env from scratch,
-     * instead of trying to selectively restart each one.
+     * Loads the cafe's catalog and staff on demand, from the button on the
+     * panel.
+     *
+     * First-run seeding only fires on a database that has never been set up,
+     * and an install that came up empty is past that point forever: the
+     * tables exist, so the app treats it as already initialised on every
+     * later launch. Recovering meant uninstalling, hunting down a hidden
+     * application-data folder and deleting it by hand — with the app's own
+     * data in it. This is the same seeder, reachable without any of that.
+     *
+     * Safe to press twice: the seeder inserts with insertOrIgnore, so rows
+     * that already exist are left exactly as they are, including any price
+     * or name the cafe has since corrected.
+     */
+    public function loadLegacyData()
+    {
+        try {
+            Artisan::call('db:seed', [
+                '--class' => LegacyOrangeDataSeeder::class,
+                '--force' => true,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Legacy data seeding failed', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'تعذر تحميل البيانات: '.$e->getMessage(),
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'counts' => [
+                'products' => $this->tableCount('products'),
+                'categories' => $this->tableCount('categories'),
+                'users' => $this->tableCount('users'),
+            ],
+        ]);
+    }
+
+    /**
+     * Copies text to the system clipboard through Electron.
+     *
+     * The panel's copy buttons try navigator.clipboard first, which fails in
+     * this window: the Clipboard API needs a secure context, and the window
+     * is served over plain http from NativePHP's internal server on a port
+     * that varies per launch. So the LAN address — the one thing whoever
+     * sets the cafe up has to get into a tablet — could only be transcribed
+     * by hand, and the button just said "تعذر النسخ".
+     */
+    public function copy(Request $request)
+    {
+        $validated = $request->validate([
+            'text' => ['required', 'string', 'max:2048'],
+        ]);
+
+        try {
+            Clipboard::text($validated['text']);
+        } catch (\Throwable $e) {
+            Log::error('Native clipboard write failed', ['error' => $e->getMessage()]);
+
+            return response()->json(['success' => false], 500);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Stops and re-spawns Reverb, the LAN server, the queue worker and the
+     * scheduler so they pick up the .env that was just saved. Those four
+     * processes are the only ones that read it.
      *
      * Deliberately a separate action from update() so saving settings never
      * interrupts service for the whole restaurant without someone choosing
      * that explicitly.
+     *
+     * This used to call App::relaunch(), which could not work from here on
+     * two counts: NativePHP's /app/relaunch handler calls app.relaunch() and
+     * app.quit() without ever sending a response, so this request died with
+     * the process it had just asked to kill and the panel reported failure
+     * whatever actually happened; and quitting a tray app is not a reliable
+     * way to get it back. Nothing about restarting the children needs the
+     * Electron process to go anywhere.
      */
-    public function restart(Request $request)
+    public function restart(Request $request, NativeServices $services)
     {
         try {
-            NativeApp::relaunch();
+            $restarted = $services->restartAll();
         } catch (\Throwable $e) {
-            Log::error('Native app relaunch failed', ['error' => $e->getMessage()]);
+            Log::error('Native service restart failed', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
-                'error' => 'تعذر إعادة التشغيل التلقائي — أغلق التطبيق وشغّله يدوياً.',
+                'error' => 'تعذر إعادة تشغيل الخدمات — أغلق التطبيق وشغّله يدوياً.',
             ], 500);
         }
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'restarted' => $restarted]);
     }
 
     /**

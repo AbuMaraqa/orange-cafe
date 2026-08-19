@@ -27,6 +27,10 @@
     </style>
 </head>
 <body>
+    @if (!empty($notice))
+        <div style="font-size:12px;font-weight:bold;border:2px solid #000;padding:4px;margin-bottom:6px;text-align:center;">{{ $notice }}</div>
+    @endif
+
     <div class="center">
         @if ($logoPath)
             <img class="logo" src="{{ $logoPath }}" alt="{{ $branding->name }}">

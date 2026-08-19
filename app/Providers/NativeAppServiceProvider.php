@@ -5,15 +5,13 @@ namespace App\Providers;
 use App\Models\User;
 use App\Services\Native\InstallIdentity;
 use App\Services\Native\NativeNetworkInfo;
-use Closure;
+use App\Services\Native\NativeServices;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use Native\Laravel\Client\Client;
 use Native\Laravel\Contracts\ProvidesPhpIni;
 use Native\Laravel\Facades\App;
-use Native\Laravel\Facades\ChildProcess;
 use Native\Laravel\Facades\Menu;
 use Native\Laravel\Facades\MenuBar;
 use Native\Laravel\Facades\Settings;
@@ -33,6 +31,21 @@ use Throwable;
 class NativeAppServiceProvider implements ProvidesPhpIni
 {
     /**
+     * The screen each role actually works on, keyed by path.
+     *
+     * Locale-prefixed on purpose: every customer- and staff-facing route
+     * lives under /{locale}/ (routes/web.php), so a bare /cashier is a 404.
+     *
+     * @var array<string, string>
+     */
+    public const ROLE_LINKS = [
+        '/ar/admin' => 'الإدارة',
+        '/ar/cashier' => 'الكاشير',
+        '/ar/waiter' => 'النادل',
+        '/ar/kitchen' => 'المطبخ',
+    ];
+
+    /**
      * Executed once the native application has been booted.
      */
     public function boot(): void
@@ -47,6 +60,9 @@ class NativeAppServiceProvider implements ProvidesPhpIni
 
         Log::info('NativeAppServiceProvider::boot() starting.');
 
+        // Before anything else, and before any child process is spawned.
+        $this->discardCachedRoutes();
+
         $this->ensureDeviceId();
 
         // Before any child process is spawned: they read .env at their own
@@ -54,7 +70,23 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         // keeps the shipped values in memory for the rest of this boot, which
         // is harmless — only the control-panel routes run here, and they
         // neither use sessions (see routes/web.php) nor broadcast.
-        app(InstallIdentity::class)->ensure();
+        $rewrittenSecrets = app(InstallIdentity::class)->ensure();
+
+        // The secrets just written to .env are invisible to anything reading
+        // the cached config, which is everything: `artisan optimize` ran
+        // before this boot hook and Laravel stops loading .env once
+        // bootstrap/cache/config.php exists.
+        //
+        // Left alone, this app publishes order events signed with the stale
+        // (shipped, empty) REVERB_APP_SECRET while the Reverb process below
+        // starts with the new one from .env. Every broadcast is then rejected
+        // with "Pusher error: Authentication signature invalid" — 2908 of them
+        // in one packaged run — and live updates die silently: the kitchen
+        // screen simply never hears about a new order, while every page still
+        // loads normally and nothing in the UI suggests a problem.
+        if ($rewrittenSecrets !== []) {
+            $this->discardCachedConfig();
+        }
 
         $this->ensureDatabaseIsReady();
         $this->openControlWindow();
@@ -64,81 +96,11 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         // (NativeServiceProvider::rewriteDatabase) — a local file that is
         // open by the time this runs, with nothing to wait for and no
         // network dependency that could make waiting worthwhile.
-
-        // --host=0.0.0.0 rather than 127.0.0.1: binding to loopback would
-        // make Reverb reachable only from this machine, so every other
-        // device could load pages over the LAN but would never receive a
-        // live update (new order in the kitchen, waiter call, table
-        // status). --hostname must match the host the browser's Echo
-        // client actually dials — see resources/js/echo.js, which falls
-        // back to window.location.hostname.
-        $this->startService('reverb', function () {
-            ChildProcess::artisan([
-                'reverb:start',
-                '--host=0.0.0.0',
-                '--hostname='.env('REVERB_HOST', '127.0.0.1'),
-                '--port='.env('REVERB_PORT', 8080),
-                '--no-interaction',
-            ], 'reverb', null, true);
-        });
-
-        // NativePHP's own internal PHP server (the one serving the Electron
-        // window) is bound to 127.0.0.1, so nothing else in the building
-        // can reach it. This is a second, separate Laravel server on the
-        // same code and database, listening on the LAN — it is what every
-        // tablet, kitchen screen and customer phone actually talks to.
-        if ((bool) env('LAN_SERVER_ENABLED', true)) {
-            $this->startService('lan_server', function () {
-                ChildProcess::artisan([
-                    'serve',
-                    '--host='.env('LAN_SERVER_HOST', '0.0.0.0'),
-                    '--port='.env('LAN_SERVER_PORT', 8000),
-                    // Without --no-reload this server never stays up:
-                    // `artisan serve` watches .env's mtime and restarts on
-                    // every change, and .env is written on a normal boot
-                    // here — NativePHP rewrites REVERB_* into it each
-                    // start, and the settings panel writes it whenever it's
-                    // saved. The result is an endless "Environment
-                    // modified. Restarting server..." loop that never holds
-                    // the port long enough to serve anyone. Reloading on
-                    // file changes is a development convenience with no
-                    // place in the packaged app anyway: settings changes
-                    // here are applied by the explicit restart button.
-                    '--no-reload',
-                ], 'lan_server', null, true);
-            });
-        }
-
-        // Without this worker every queued print job (PrintOrderTicket,
-        // PrintCashierReceipt) piles up in the `jobs` table and no kitchen
-        // ticket or receipt is ever physically printed.
         //
-        // Spawned directly rather than through QueueWorker::up(), which
-        // reads nativephp.queue_workers — a config kept empty on purpose so
-        // NativePHP stops re-starting the worker on every web request (see
-        // the note in config/nativephp.php). Same command it would build.
-        $this->startService('queue_default', function () {
-            $worker = config('nativephp.orange_queue_worker');
-
-            ChildProcess::artisan([
-                app()->isLocal() ? 'queue:listen' : 'queue:work',
-                '--name='.$worker['alias'],
-                '--queue='.implode(',', $worker['queues']),
-                '--memory='.$worker['memory_limit'],
-                '--timeout='.$worker['timeout'],
-                '--sleep='.$worker['sleep'],
-            ], 'queue_'.$worker['alias'], null, true, [
-                'memory_limit' => $worker['memory_limit'].'M',
-            ]);
-        });
-
-        // bootstrap/app.php schedules app:check-printer-statuses every
-        // minute — the sweep behind the green/red printer lights in the
-        // admin panel. A schedule only runs if something calls
-        // schedule:run, and in a desktop install there is no cron to do it.
-        $this->startService('scheduler', function () {
-            ChildProcess::artisan(['schedule:work', '--no-interaction'], 'scheduler', null, true);
-        });
+        // Spawning lives in NativeServices because the control panel's
+        // restart button has to repeat it with the settings just saved.
+        $services = app(NativeServices::class);
+        $services->startAll();
 
         if ((bool) env('NATIVE_START_AT_LOGIN', true)) {
             App::openAtLogin(true);
@@ -152,9 +114,71 @@ class NativeAppServiceProvider implements ProvidesPhpIni
 
         $this->showTray("Orange Cafe — يعمل على المنفذ {$port}", $lanUrls);
 
-        $this->recordRunningConfig();
+        $services->recordRunningConfig();
 
         Log::info('NativeAppServiceProvider::boot() finished.');
+    }
+
+    /**
+     * Drops the cached config so the freshly written secrets take effect.
+     *
+     * Only called when InstallIdentity actually changed something, which is
+     * the first launch on a machine (and any launch where the stored values
+     * drifted from .env). The cost is that this launch resolves config from
+     * .env on every request instead of from the cache; the next launch's
+     * `artisan optimize` rebuilds it, by then from a .env that already holds
+     * the right values.
+     */
+    private function discardCachedConfig(): void
+    {
+        try {
+            $cached = app()->bootstrapPath('cache/config.php');
+
+            if (is_file($cached) && @unlink($cached)) {
+                Log::info('Discarded the cached config so the new install secrets apply.', ['file' => $cached]);
+            }
+        } catch (Throwable $e) {
+            Log::warning('Could not discard the cached config.', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Deletes the route cache that NativePHP creates on every launch.
+     *
+     * The packaged app runs `php artisan optimize` each time it starts
+     * (electron-plugin/src/server/php.ts — shouldOptimize() returns true for
+     * anything that is not NODE_ENV=development), and optimize includes
+     * `route:cache`.
+     *
+     * That is fatal here. Every customer-facing route lives in a group whose
+     * prefix is `LaravelLocalization::setLocale()` (routes/web.php), and that
+     * resolves the locale from the *current request*. Caching evaluates it
+     * exactly once, from the CLI, where there is no request — so the default
+     * locale is frozen into the cached file as the only prefix that exists.
+     * On the customer's machine `/ar/...` works and every `/en/...` URL
+     * returns 404: the menu, the kitchen screen and the waiter tablet all
+     * break for anyone using English, with nothing in the logs to explain it.
+     *
+     * Nothing in development ever shows this, because development never runs
+     * optimize — which is exactly why it reached a customer.
+     *
+     * Deleting rather than preventing: `optimize` has already run by the time
+     * any PHP of ours executes. Doing it here, at the top of boot(), means the
+     * LAN server, the queue worker and the scheduler are all spawned
+     * afterwards and none of them ever sees the file. The config cache is left
+     * alone — that one is wanted (see NativeEnvSettings).
+     */
+    private function discardCachedRoutes(): void
+    {
+        try {
+            foreach ((array) glob(app()->bootstrapPath('cache/routes-*.php')) as $cached) {
+                if (is_file($cached) && @unlink($cached)) {
+                    Log::info('Discarded the cached route file so locale prefixes stay dynamic.', ['file' => $cached]);
+                }
+            }
+        } catch (Throwable $e) {
+            Log::warning('Could not discard the cached routes.', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -212,101 +236,6 @@ class NativeAppServiceProvider implements ProvidesPhpIni
     }
 
     /**
-     * Remember the settings the child processes were actually started with,
-     * so the control panel can tell "Reverb is down" apart from "you changed
-     * the port and haven't restarted yet".
-     *
-     * Those two look identical from a port probe, and conflating them is
-     * alarming in the wrong direction: saving a new Reverb port turns the
-     * status light red even though live updates are working perfectly on the
-     * old one, because the panel probes the address it just saved while the
-     * server is still listening on the previous one.
-     *
-     * Comparing .env against env() in the panel would not work: the internal
-     * PHP server re-bootstraps Laravel on every request, so env() there
-     * always reflects the file as it is *now*, not as it was at boot. This is
-     * the only place that knows the difference.
-     */
-    private function recordRunningConfig(): void
-    {
-        try {
-            Settings::set('running_config', json_encode([
-                'REVERB_HOST' => (string) env('REVERB_HOST', '127.0.0.1'),
-                'REVERB_PORT' => (string) env('REVERB_PORT', 8080),
-                'LAN_SERVER_PORT' => (string) env('LAN_SERVER_PORT', 8000),
-            ]));
-        } catch (Throwable $e) {
-            Log::warning('Could not record the running configuration.', ['error' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * Starts a background service by alias, skipping it if already running
-     * and never letting a failure here stop the other services queued up
-     * after it in boot().
-     */
-    private function startService(string $alias, Closure $start): void
-    {
-        if (in_array($alias, $this->runningAliases(), true)) {
-            Log::info("Native service [{$alias}] is already running — skipped.");
-
-            return;
-        }
-
-        try {
-            $start();
-            Log::info("Native service [{$alias}] started.");
-        } catch (Throwable $e) {
-            // A hydration crash (see runningAliases()) can surface here too,
-            // on a relaunch where the alias is already registered: NativePHP's
-            // Electron side returns the stored process object as-is for a
-            // duplicate alias, and ChildProcess::start() then chokes hydrating
-            // it. Re-check before crying failure, or the log fills with
-            // "Failed to start" for services that are running perfectly.
-            if (in_array($alias, $this->runningAliases(), true)) {
-                Log::info("Native service [{$alias}] was already registered — treating as running.");
-
-                return;
-            }
-
-            Log::error("Failed to start native service [{$alias}].", ['error' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * Aliases the NativePHP daemon currently has registered, read straight
-     * off its HTTP API instead of through ChildProcess::get()/all().
-     *
-     * Those hydrate every result through ChildProcess::fromRuntimeProcess(),
-     * which does `foreach ($process['settings'] as ...)` — and the daemon
-     * returns its stored process object *without* a `settings` key for an
-     * already-running alias. The whole check then dies on "Trying to access
-     * array offset on null", which the caller could only read as "this
-     * service failed", so every service came back reported as failed on a
-     * second boot while all four were in fact running.
-     *
-     * The raw response needs no hydration, so it cannot hit that.
-     *
-     * @return string[]
-     */
-    private function runningAliases(): array
-    {
-        try {
-            $processes = app(Client::class)->get('child-process/')->json();
-
-            return is_array($processes) ? array_keys($processes) : [];
-        } catch (Throwable $e) {
-            // Outside the native runtime there is no daemon to ask. Reporting
-            // "nothing is running" is the safe answer: starting an alias that
-            // already exists is a no-op on the Electron side, whereas
-            // skipping one that isn't running leaves the app without it.
-            Log::warning('Could not list running native services.', ['error' => $e->getMessage()]);
-
-            return [];
-        }
-    }
-
-    /**
      * The window whoever sets up this machine actually looks at — live
      * status per service, the LAN addresses to type into the tablets, and
      * the handful of settings that differ per install. Opened before anyone
@@ -360,14 +289,35 @@ class NativeAppServiceProvider implements ProvidesPhpIni
     {
         $port = (int) env('LAN_SERVER_PORT', 8000);
 
+        // The address other devices must use, falling back to loopback when
+        // no LAN address could be detected (a machine with Wi-Fi switched
+        // off, typically) — a tray menu that silently loses half its entries
+        // is worse than one pointing at an address that only works here.
+        $base = $lanUrls[0] ?? "http://127.0.0.1:{$port}";
+
         $items = [
             Menu::label($status),
             Menu::separator(),
-            Menu::link("http://127.0.0.1:{$port}", 'افتح في المتصفح (هذا الجهاز)')->openInBrowser(true),
+            Menu::link($base.'/native/panel', 'صفحة الإعداد (هذا الجهاز)')->openInBrowser(true),
+            Menu::separator(),
+            Menu::label('روابط الأجهزة'),
         ];
 
-        foreach ($lanUrls as $url) {
-            $items[] = Menu::link($url, "أجهزة أخرى: {$url}")->openInBrowser(true);
+        // One entry per role rather than a single root link: each screen is
+        // opened on a different device by a different person, and asking a
+        // waiter to find their own screen from the home page is a step that
+        // gets skipped or got wrong on every new tablet.
+        foreach (self::ROLE_LINKS as $path => $label) {
+            $items[] = Menu::link($base.$path, $label)->openInBrowser(true);
+        }
+
+        // Every detected address, for a machine on more than one network.
+        if (count($lanUrls) > 1) {
+            $items[] = Menu::separator();
+
+            foreach ($lanUrls as $url) {
+                $items[] = Menu::link($url, "عنوان آخر: {$url}")->openInBrowser(true);
+            }
         }
 
         $items[] = Menu::separator();

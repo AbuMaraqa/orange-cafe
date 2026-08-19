@@ -78,6 +78,8 @@ Route::middleware('local-only')
         Route::get('/panel/status', [NativeSettingsController::class, 'status'])->name('native.panel.status');
         Route::post('/panel/update', [NativeSettingsController::class, 'update'])->name('native.panel.update');
         Route::post('/panel/restart', [NativeSettingsController::class, 'restart'])->name('native.panel.restart');
+        Route::post('/panel/copy', [NativeSettingsController::class, 'copy'])->name('native.panel.copy');
+        Route::post('/panel/load-data', [NativeSettingsController::class, 'loadLegacyData'])->name('native.panel.load-data');
         Route::post('/panel/credentials/dismiss', [NativeSettingsController::class, 'dismissCredentials'])
             ->name('native.panel.credentials.dismiss');
     });
