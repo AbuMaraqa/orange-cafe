@@ -1,3 +1,5 @@
+@import './fonts.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -12,4 +14,100 @@
 .focus-brand:focus {
     border-color: var(--brand-primary);
     --tw-ring-color: var(--brand-primary);
+}
+
+/*
+ * Price boxes.
+ *
+ * They stay type="number" (it brings up the numeric keypad on the tablets
+ * the staff use, and enforces a numeric value), but the spinner arrows are
+ * hidden: the fields are narrow, the arrows eat a third of the width, and
+ * stepping a price by 0.01 at a time is not something anyone does. In RTL
+ * they also render on the wrong side of the caret, which is what made a
+ * half-typed price look like it had been mangled.
+ */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.no-spinner {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+/*
+ * Printing.
+ *
+ * A report on screen is a page inside an application: a sidebar, a sticky
+ * header, tab buttons, a filter bar, an export link. On paper every one of
+ * those is either ink spent on something untappable or a chunk of the width
+ * the table needed. So the chrome is dropped and the report is given the
+ * sheet.
+ *
+ * Nothing here is report-specific — any screen that marks its controls
+ * `print:hidden` prints the same way. The rules live in CSS rather than in a
+ * separate print template because the numbers on paper then cannot disagree
+ * with the numbers on screen: there is only one of them.
+ */
+@media print {
+    /* The application frame: sidebar, top bar, floating alerts. */
+    aside,
+    header.sticky,
+    .print\:hidden {
+        display: none !important;
+    }
+
+    /* Give the sheet its full width — the screen layout reserves space for
+       a sidebar that is no longer there. */
+    main {
+        overflow: visible !important;
+        padding: 0 !important;
+    }
+
+    body,
+    .min-h-screen {
+        min-height: 0 !important;
+        background: #fff !important;
+    }
+
+    /* Paper is white whatever the operator's theme is. Printing a dark
+       screen wastes toner and comes out unreadable. */
+    * {
+        background-color: transparent !important;
+        color: #000 !important;
+        box-shadow: none !important;
+    }
+
+    /* Keep the light structural lines — a table with no rules is a wall of
+       numbers. */
+    table, th, td {
+        border-color: #999 !important;
+    }
+
+    thead {
+        display: table-header-group;
+    }
+
+    /* A row split across a page break is a row nobody can read. */
+    tr, .break-inside-avoid {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* Only shown on paper: the page has a visible title on screen already,
+       but a printout with no restaurant name and no date range is a sheet
+       of numbers nobody can file. */
+    .print-only {
+        display: block !important;
+    }
+
+    @page {
+        margin: 14mm;
+    }
+}
+
+.print-only {
+    display: none;
 }

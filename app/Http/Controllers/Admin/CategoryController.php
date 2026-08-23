@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Admin\Concerns\FillsMissingTranslations;
 use App\Http\Controllers\Controller;
+use App\Services\Images\ImageOptimizer;
 use App\Http\Requests\Admin\StoreCategoryRequest;
 use App\Http\Requests\Admin\UpdateCategoryRequest;
 use App\Models\Category;
@@ -11,6 +12,9 @@ use App\Models\Menu;
 use App\Models\Printer;
 use App\Services\LanguageRegistry;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -19,8 +23,48 @@ class CategoryController extends Controller
 {
     use FillsMissingTranslations;
 
-    public function __construct(protected LanguageRegistry $registry)
+    public function __construct(protected LanguageRegistry $registry) {}
+
+    /**
+     * Persists a drag-and-drop reorder of the category tree.
+     *
+     * The ids arrive as one flat list in the order the rows are displayed,
+     * because that is what the table is — a flattened tree. A row can only be
+     * dropped among its own siblings (Index.vue refuses any other drop), so
+     * position within the flat list is enough: walking it in order and
+     * handing out sort_order separately per parent reproduces exactly what
+     * the admin sees, without the client needing to know anything about
+     * sort_order at all.
+     *
+     * Scoped per parent rather than one global counter because sort_order is
+     * only ever compared between siblings (Category::children() and the
+     * index query both order within a parent); a global sequence would still
+     * sort correctly but would leave gaps that look like corruption the next
+     * time someone opens the edit form.
+     */
+    public function reorder(Request $request): RedirectResponse
     {
+        $order = $request->validate([
+            'order' => ['required', 'array'],
+            'order.*' => ['integer', 'exists:categories,id'],
+        ])['order'];
+
+        $parents = Category::query()->whereKey($order)->pluck('parent_id', 'id');
+
+        DB::transaction(function () use ($order, $parents) {
+            $next = [];
+
+            foreach ($order as $id) {
+                // Null parent (a top-level category) needs a key of its own —
+                // array_key 'root' cannot collide with an integer id.
+                $key = $parents[$id] === null ? 'root' : $parents[$id];
+                $next[$key] = ($next[$key] ?? -1) + 1;
+
+                Category::whereKey($id)->update(['sort_order' => $next[$key]]);
+            }
+        });
+
+        return back();
     }
 
     public function index(): Response
@@ -48,7 +92,7 @@ class CategoryController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, Category>  $all
+     * @param  Collection<int, Category>  $all
      */
     protected function buildTree(Category $category, $all): array
     {
@@ -85,7 +129,7 @@ class CategoryController extends Controller
         }
 
         if ($request->hasFile('image')) {
-            $data['image_path'] = $request->file('image')->store('categories', 'public');
+            $data['image_path'] = app(ImageOptimizer::class)->store($request->file('image'), 'categories');
         }
         unset($data['image']);
 
@@ -121,7 +165,7 @@ class CategoryController extends Controller
             if ($category->image_path) {
                 Storage::disk('public')->delete($category->image_path);
             }
-            $data['image_path'] = $request->file('image')->store('categories', 'public');
+            $data['image_path'] = app(ImageOptimizer::class)->store($request->file('image'), 'categories');
         }
         unset($data['image']);
 

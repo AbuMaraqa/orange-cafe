@@ -63,10 +63,26 @@ function submit() {
                             {{ line.modifiers.map((m) => m.name).join(', ') }}
                         </p>
                         <p v-if="line.notes" class="text-xs italic text-gray-400">{{ line.notes }}</p>
-                        <div class="mt-1.5 flex items-center gap-2">
-                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-xs dark:border-gray-600" @click="cart.updateQuantity(line.id, line.quantity - 1)">−</button>
+                    <div class="mt-1.5 flex items-center gap-2">
+                            <button type="button" class="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs dark:border-gray-600" @click="cart.updateQuantity(line.id, line.quantity - 1)">−</button>
                             <span class="w-4 text-center text-sm">{{ line.quantity }}</span>
-                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-xs dark:border-gray-600" @click="cart.updateQuantity(line.id, line.quantity + 1)">+</button>
+                            <button type="button" class="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs dark:border-gray-600" @click="cart.updateQuantity(line.id, line.quantity + 1)">+</button>
+
+                            <!-- Taking something out should not require
+                                 counting down to it. Tapping "−" four times
+                                 to undo a mistake is four chances to
+                                 overshoot, and on a phone held one-handed at
+                                 a table it is genuinely fiddly — so removing
+                                 a line is its own action, set apart from the
+                                 stepper and coloured as the destructive one. -->
+                            <button
+                                type="button"
+                                class="ms-1 flex h-8 w-8 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950"
+                                :aria-label="t('menu.remove_item', { name: line.name })"
+                                @click="cart.remove(line.id)"
+                            >
+                                <NavIcon name="trash" class="h-4 w-4" />
+                            </button>
                         </div>
                     </div>
                     <p class="shrink-0 text-sm font-medium text-gray-900 dark:text-gray-100">{{ formatPrice(line.unit_price_cents * line.quantity) }}</p>

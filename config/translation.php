@@ -1,5 +1,12 @@
 <?php
 
+use App\Models\Category;
+use App\Models\Menu;
+use App\Models\Modifier;
+use App\Models\ModifierGroup;
+use App\Models\Product;
+use App\Models\Tag;
+
 return [
 
     /*
@@ -15,12 +22,12 @@ return [
     |
     */
     'translatable_models' => [
-        \App\Models\Menu::class,
-        \App\Models\Category::class,
-        \App\Models\Product::class,
-        \App\Models\ModifierGroup::class,
-        \App\Models\Modifier::class,
-        \App\Models\Tag::class,
+        Menu::class,
+        Category::class,
+        Product::class,
+        ModifierGroup::class,
+        Modifier::class,
+        Tag::class,
     ],
 
 ];

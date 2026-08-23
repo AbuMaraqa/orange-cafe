@@ -18,6 +18,13 @@ defineProps({
 
 const { t } = useI18n();
 
+// The tree component hands back the whole visible order, flattened; the
+// server splits it per parent (CategoryController::reorder). preserveScroll
+// because a long category list reorders near the bottom as often as the top.
+function persistOrder(order) {
+    router.patch(route('admin.categories.reorder'), { order }, { preserveScroll: true });
+}
+
 function destroy(category) {
     if (confirm(`${category.name}: ` + t('common.are_you_sure'))) {
         router.delete(route('admin.categories.destroy', category.id), { preserveScroll: true });
@@ -41,6 +48,7 @@ function destroy(category) {
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
                 <thead class="bg-gray-50 dark:bg-gray-900/60">
                     <tr class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        <th class="w-8 px-2 py-3"></th>
                         <th class="px-4 py-3 text-start">{{ $t('common.name') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.categories.menu') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.categories.slug') }}</th>
@@ -49,10 +57,17 @@ function destroy(category) {
                         <th class="px-4 py-3 text-end">{{ $t('common.actions') }}</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                    <CategoryTreeRows :categories="categories" :languages="languages" @delete="destroy" />
-                </tbody>
+                <CategoryTreeRows
+                    :categories="categories"
+                    :languages="languages"
+                    @delete="destroy"
+                    @reorder="persistOrder"
+                />
             </table>
         </div>
+
+        <p v-if="categories.length > 0" class="mt-2 text-xs text-gray-400">
+            {{ $t('admin.categories.drag_hint') }}
+        </p>
     </AuthenticatedLayout>
 </template>

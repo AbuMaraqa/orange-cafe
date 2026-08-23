@@ -1,12 +1,14 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import CartDrawer from '@/Components/Customer/CartDrawer.vue';
 import LanguageSwitcher from '@/Components/LanguageSwitcher.vue';
 import NavIcon from '@/Components/NavIcon.vue';
+import CategoryTile from '@/Components/Customer/CategoryTile.vue';
+import MenuSection from '@/Components/Customer/MenuSection.vue';
 import ProductCard from '@/Components/Customer/ProductCard.vue';
 import ProductModal from '@/Components/Customer/ProductModal.vue';
-import ThemeToggle from '@/Components/ThemeToggle.vue';
 import { useCart } from '@/composables/useCart';
+import { matchesQuery } from '@/composables/useProductSearch';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 
@@ -25,6 +27,23 @@ const page = usePage();
 const { t } = useI18n();
 const cart = useCart();
 
+// The cart is restored from localStorage with the prices it was saved
+// with, and it is saved indefinitely. Checking it against the menu this
+// page was just rendered with is the only thing that stops a tablet left
+// on the menu — or a customer coming back the next day — from being shown
+// last week's prices for an order the server will charge today's prices
+// for.
+const staleCart = reactive({ removed: [], repriced: [] });
+
+onMounted(() => {
+    const changed = cart.reconcile(props.menus);
+
+    staleCart.removed = changed.removed;
+    staleCart.repriced = changed.repriced;
+});
+
+const cartWasCorrected = computed(() => staleCart.removed.length > 0 || staleCart.repriced.length > 0);
+
 const branding = computed(() => page.props.branding);
 
 // Set by the QR code printed on each table (Admin → Tables → Print QR),
@@ -40,7 +59,6 @@ const activeMenu = computed(() => props.menus.find((m) => m.id === activeMenuId.
 const categories = computed(() => activeMenu.value?.categories ?? []);
 
 const search = ref('');
-const activeCategory = ref('all');
 const selectedProduct = ref(null);
 const showCart = ref(false);
 
@@ -49,35 +67,85 @@ const showCart = ref(false);
 // showing the browser's broken-image + alt-text placeholder.
 const failedImages = reactive(new Set());
 
-const flatCategories = computed(() => categories.value.map((c) => ({ id: c.id, name: c.name, image_url: c.image_url })));
+/* ------------------------------------------------------------------ *
+ * Browsing the menu
+ * ------------------------------------------------------------------ */
 
+// The menu is browsed by opening sections, not by scrolling past them. A
+// café with a hundred and fifty items in one column is a wall of text, and
+// a customer at a table with friends will not read it — they will ask the
+// waiter, which is the thing the QR menu exists to avoid.
+//
+// `path` is the trail of section ids from the top down to wherever the
+// customer currently is. Depth is whatever the data says: مشروبات ←
+// ساخنة ← قهوة ← مختصة all work, because nothing here counts levels.
+const path = ref([]);
+
+// Each section along the trail, resolved from the ids. Any id that no
+// longer exists (a section deleted while the page was open) truncates the
+// trail there rather than throwing.
+const trail = computed(() => {
+    const out = [];
+    let level = categories.value;
+
+    for (const id of path.value) {
+        const found = level.find((category) => category.id === id);
+        if (!found) break;
+
+        out.push(found);
+        level = found.subcategories ?? [];
+    }
+
+    return out;
+});
+
+const currentCategory = computed(() => trail.value[trail.value.length - 1] ?? null);
+
+// At the top the tiles are the menu's own sections; inside one, they are
+// its sub-sections.
+const currentSections = computed(() =>
+    currentCategory.value ? (currentCategory.value.subcategories ?? []) : categories.value
+);
+
+// A section can hold dishes and sub-sections at the same time — a house
+// special sitting next to "hot" and "cold" is a real menu, not an edge case.
+const currentProducts = computed(() => {
+    const products = currentCategory.value?.products ?? [];
+
+    return isSearching.value ? filterProducts(products) : products;
+});
+
+function openCategory(category) {
+    path.value = [...path.value, category.id];
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// index 0 is the menu root, 1 is the first section, and so on.
+function goToLevel(index) {
+    path.value = path.value.slice(0, index);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goBack() {
+    goToLevel(path.value.length - 1);
+}
+
+// Switching menu tabs starts a fresh trail — the old one points at sections
+// that belong to a different menu.
 watch(activeMenuId, () => {
-    activeCategory.value = 'all';
+    path.value = [];
     search.value = '';
 });
 
 // Forgiving matching for Arabic input: strips diacritics/tatweel and folds
 // the letter variants people mix up constantly when typing fast (أ/إ/آ/ا,
 // ى/ي, ة/ه) so "أراجيل" and "اراجيل" (or "ارجيله") hit the same product.
-function normalize(value) {
-    return (value ?? '')
-        .toLowerCase()
-        .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
-        .replace(/[إأآا]/g, 'ا')
-        .replace(/ى/g, 'ي')
-        .replace(/ة/g, 'ه')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-// Each typed word must appear somewhere in the name/description — order-
-// independent, so "تفاح كيك" still finds "كيك التفاح".
+// Lives in useProductSearch now, shared with the staff order screen. That
+// screen had its own weaker copy — a plain substring match with none of the
+// folding — so a waiter typing a name with an alef hamza got nothing while a
+// customer typing the same thing found it.
 function matchesSearch(product) {
-    const query = normalize(search.value);
-    if (!query) return true;
-
-    const haystack = normalize(`${product.name} ${product.description ?? ''}`);
-    return query.split(' ').every((word) => haystack.includes(word));
+    return matchesQuery(product, search.value);
 }
 
 function filterProducts(products) {
@@ -91,20 +159,29 @@ function filterProducts(products) {
 const isSearching = computed(() => search.value.trim().length > 0);
 const allCategories = computed(() => props.menus.flatMap((m) => m.categories));
 
-const visibleCategories = computed(() => {
-    const source = isSearching.value ? allCategories.value : categories.value;
+/**
+ * Filters a section and everything under it, dropping any branch that ends
+ * up empty. Recursive because the menu nests to whatever depth the cafe set
+ * up — a search that only looked two levels down silently hid matches that
+ * sat deeper.
+ */
+function pruneCategory(category) {
+    const products = filterProducts(category.products ?? []);
+    const subcategories = (category.subcategories ?? []).map(pruneCategory).filter(Boolean);
 
-    return source
-        .filter((category) => isSearching.value || activeCategory.value === 'all' || activeCategory.value === category.id)
-        .map((category) => ({
-            ...category,
-            products: filterProducts(category.products),
-            subcategories: category.subcategories
-                .map((sub) => ({ ...sub, products: filterProducts(sub.products) }))
-                .filter((sub) => sub.products.length > 0),
-        }))
-        .filter((category) => category.products.length > 0 || category.subcategories.length > 0);
-});
+    if (products.length === 0 && subcategories.length === 0) {
+        return null;
+    }
+
+    return { ...category, products, subcategories };
+}
+
+// Search results are a flat list of everything that matched, across every
+// menu and every depth — a customer looking for "شاي" does not know or care
+// which section it lives in.
+const visibleCategories = computed(() =>
+    allCategories.value.map(pruneCategory).filter(Boolean)
+);
 
 // Always open the full detail view first — a customer should see the photo,
 // description, and any customization options before it's added, rather
@@ -203,6 +280,28 @@ function submitFeedback() {
     <Head :title="t('menu.title')" />
 
     <div class="min-h-screen bg-white pb-28 dark:bg-gray-950">
+        <!-- The cart was corrected against the live menu. Said out loud
+             rather than done silently: a total that changes between one
+             visit and the next, with no explanation, reads as the menu
+             overcharging. -->
+        <div
+            v-if="cartWasCorrected"
+            class="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950"
+        >
+            <NavIcon name="bell" class="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+            <div class="flex-1 text-sm text-amber-900 dark:text-amber-100">
+                <p v-if="staleCart.repriced.length" class="font-medium">
+                    {{ t('menu.cart_repriced', { items: staleCart.repriced.join('، ') }) }}
+                </p>
+                <p v-if="staleCart.removed.length" class="font-medium">
+                    {{ t('menu.cart_items_gone', { items: staleCart.removed.join('، ') }) }}
+                </p>
+            </div>
+            <button type="button" class="shrink-0 text-amber-500" @click="staleCart.removed = []; staleCart.repriced = []">
+                <NavIcon name="close" class="h-4 w-4" />
+            </button>
+        </div>
+
         <!-- Hero -->
         <div class="relative h-64 w-full overflow-hidden sm:h-72">
             <img
@@ -222,10 +321,11 @@ function submitFeedback() {
                 >
                     {{ t('tables.title') }} {{ tableLabel }}
                 </span>
-                <div class="flex items-center gap-1.5">
-                    <ThemeToggle variant="inverted" />
-                    <LanguageSwitcher />
-                </div>
+                <!-- No theme toggle: this page is light, always. A customer
+                     is not choosing an interface, they are reading a menu,
+                     and the control was one more thing on a screen that
+                     wants as few as possible. -->
+                <LanguageSwitcher />
             </div>
 
             <div class="absolute inset-x-0 bottom-0 flex flex-col items-center px-6 pb-7 text-center text-white">
@@ -269,99 +369,111 @@ function submitFeedback() {
                     :placeholder="t('menu.search_placeholder')"
                 />
             </div>
-            <!-- Category carousel: a circular photo per category (Talabat/
-                 Careem-style) makes browsing a QR menu feel like flipping
-                 through a real menu instead of scanning a wall of text —
-                 scroll-snap keeps it smooth to flick through on a phone.
-                 A category with no photo yet falls back to the cafe logo,
-                 then to an initial-letter avatar in the brand color if
-                 there's no logo either, rather than mixing photo and
-                 plain-text styles side by side. -->
-            <div class="mx-auto mt-3 max-w-lg">
-                <div class="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    <button type="button" class="flex shrink-0 snap-center flex-col items-center gap-1.5" @click="activeCategory = 'all'">
-                        <span
-                            class="flex h-16 w-16 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-offset-2 transition-all dark:ring-offset-gray-950"
-                            :class="activeCategory === 'all' ? 'scale-105 ring-[var(--brand-primary)]' : 'ring-transparent'"
-                            :style="{ backgroundColor: branding.primary_color }"
-                        >
-                            <NavIcon name="grid" class="h-6 w-6" />
-                        </span>
-                        <span
-                            class="line-clamp-2 max-w-[4.75rem] text-center text-xs font-medium leading-tight"
-                            :class="activeCategory === 'all' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'"
+        </div>
+        <main class="mx-auto max-w-lg px-5 py-5">
+            <!-- Searching replaces browsing rather than filtering it: a
+                 customer who types has already told us what they want, and
+                 making them also be in the right section to find it is the
+                 kind of thing that sends them back to asking the waiter. -->
+            <template v-if="isSearching">
+                <p v-if="visibleCategories.length === 0" class="mt-10 text-center text-sm text-gray-400">{{ t('menu.no_results') }}</p>
+
+                <MenuSection
+                    v-for="category in visibleCategories"
+                    :key="category.id"
+                    :category="category"
+                    :branding="branding"
+                    @add="onAddClick"
+                />
+            </template>
+
+            <template v-else>
+                <!-- Where you are, and one tap back to anywhere above it.
+                     A drill-down without a visible way out is a trap on a
+                     phone, where the browser's back button leaves the menu
+                     altogether. -->
+                <!-- Pinned to the top of the screen while the section is
+                     scrolled.
+                     A long section pushes the way out off the screen, and on
+                     a phone the only remaining exit is the browser's back
+                     button — which leaves the menu entirely and loses the
+                     table. Keeping the trail in view means the way back is
+                     one tap from anywhere in a section, however far down the
+                     guest has read.
+                     The blur and the background matter as much as the
+                     position: dish names scrolling under a transparent bar
+                     read as part of it. -->
+                <div
+                    v-if="trail.length > 0"
+                    class="sticky top-0 z-30 -mx-4 mb-5 flex items-center gap-2 border-b border-gray-100 bg-white/90 px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6"
+                >
+                    <button
+                        type="button"
+                        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-900"
+                        :aria-label="t('common.back')"
+                        @click="goBack"
+                    >
+                        <NavIcon name="chevronLeft" class="h-4 w-4 rtl:rotate-180" />
+                    </button>
+
+                    <nav class="flex min-w-0 flex-wrap items-center gap-1 text-xs">
+                        <button
+                            type="button"
+                            class="shrink-0 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-gray-200"
+                            @click="goToLevel(0)"
                         >
                             {{ t('menu.all_categories') }}
-                        </span>
-                    </button>
-
-                    <button
-                        v-for="category in flatCategories"
-                        :key="category.id"
-                        type="button"
-                        class="flex shrink-0 snap-center flex-col items-center gap-1.5"
-                        @click="activeCategory = category.id"
-                    >
-                        <span
-                            class="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full shadow-sm ring-2 ring-offset-2 transition-all dark:ring-offset-gray-950"
-                            :class="activeCategory === category.id ? 'scale-105 ring-[var(--brand-primary)]' : 'ring-transparent'"
-                        >
-                            <img
-                                v-if="category.image_url && !failedImages.has(`category-${category.id}`)"
-                                :src="category.image_url"
-                                :alt="category.name"
-                                class="h-full w-full object-cover"
-                                @error="failedImages.add(`category-${category.id}`)"
-                            />
-                            <div v-else-if="branding.logo_url && !failedImages.has('logo')" class="flex h-full w-full items-center justify-center bg-white p-2 dark:bg-gray-900">
-                                <img :src="branding.logo_url" :alt="category.name" class="h-full w-full object-contain opacity-80" @error="failedImages.add('logo')" />
-                            </div>
-                            <span
-                                v-else
-                                class="flex h-full w-full items-center justify-center text-lg font-bold text-white"
-                                :style="{ backgroundColor: branding.primary_color }"
+                        </button>
+                        <template v-for="(step, index) in trail" :key="step.id">
+                            <span class="text-gray-300">›</span>
+                            <button
+                                type="button"
+                                class="max-w-[9rem] truncate transition-colors"
+                                :class="index === trail.length - 1
+                                    ? 'font-semibold text-gray-900 dark:text-gray-100'
+                                    : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'"
+                                @click="goToLevel(index + 1)"
                             >
-                                {{ category.name.charAt(0) }}
-                            </span>
-                        </span>
-                        <span
-                            class="line-clamp-2 max-w-[4.75rem] text-center text-xs font-medium leading-tight"
-                            :class="activeCategory === category.id ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'"
-                        >
-                            {{ category.name }}
-                        </span>
-                    </button>
+                                {{ step.name }}
+                            </button>
+                        </template>
+                    </nav>
                 </div>
-            </div>
-        </div>
 
-        <!-- Menu sections -->
-        <main class="mx-auto max-w-lg px-5 py-6">
-            <p v-if="visibleCategories.length === 0" class="mt-10 text-center text-sm text-gray-400">{{ t('menu.no_results') }}</p>
-
-            <section v-for="category in visibleCategories" :key="category.id" class="mb-10">
-                <div class="mb-1 flex items-center gap-3">
-                    <h2 class="shrink-0 text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100">{{ category.name }}</h2>
-                    <span class="h-px flex-1" :style="{ backgroundColor: branding.primary_color, opacity: 0.25 }"></span>
+                <div v-if="currentCategory" class="mb-5">
+                    <h2 class="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{{ currentCategory.name }}</h2>
+                    <p v-if="currentCategory.description" class="mt-1 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+                        {{ currentCategory.description }}
+                    </p>
                 </div>
-                <p v-if="category.description" class="mb-2 text-sm text-gray-500">{{ category.description }}</p>
 
-                <div v-if="category.products.length > 0" class="flex flex-col gap-3">
-                    <ProductCard
-                        v-for="product in category.products"
-                        :key="product.id"
-                        :product="product"
-                        :currency-symbol="branding.currency_symbol"
-                        :logo-url="branding.logo_url"
-                        @add="onAddClick"
+                <!-- The sections available from here. Round photo tiles, the
+                     way a paper menu is browsed: look, open, and what is
+                     inside is only what belongs there. -->
+                <div v-if="currentSections.length > 0" class="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4">
+                    <CategoryTile
+                        v-for="section in currentSections"
+                        :key="section.id"
+                        :category="section"
+                        :branding="branding"
+                        :failed-images="failedImages"
+                        @open="openCategory"
                     />
                 </div>
 
-                <div v-for="sub in category.subcategories" :key="sub.id" class="mt-6">
-                    <h3 class="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-400">{{ sub.name }}</h3>
+                <!-- A section's own dishes, which sit alongside its
+                     sub-sections rather than instead of them. -->
+                <div v-if="currentProducts.length > 0" :class="currentSections.length > 0 ? 'mt-8' : ''">
+                    <div v-if="currentSections.length > 0" class="mb-3 flex items-center gap-3">
+                        <h3 class="shrink-0 text-sm font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                            {{ t('menu.also_here') }}
+                        </h3>
+                        <span class="h-px flex-1" :style="{ backgroundColor: branding.primary_color, opacity: 0.25 }"></span>
+                    </div>
+
                     <div class="flex flex-col gap-3">
                         <ProductCard
-                            v-for="product in sub.products"
+                            v-for="product in currentProducts"
                             :key="product.id"
                             :product="product"
                             :currency-symbol="branding.currency_symbol"
@@ -370,7 +482,14 @@ function submitFeedback() {
                         />
                     </div>
                 </div>
-            </section>
+
+                <p
+                    v-if="currentSections.length === 0 && currentProducts.length === 0"
+                    class="mt-12 text-center text-sm text-gray-400"
+                >
+                    {{ t('menu.empty') }}
+                </p>
+            </template>
         </main>
 
         <footer v-if="contactLinks.length > 0" class="border-t border-gray-100 px-5 py-8 text-center dark:border-gray-800">

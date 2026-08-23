@@ -21,7 +21,7 @@ class UpdateServiceRequest extends FormRequest
         $rules = [
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', Rule::unique('services', 'slug')->ignore($this->route('service'))],
             'icon' => ['nullable', 'string', 'max:10'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            'image' => ['nullable', 'image', 'max:15360'],
             'color' => ['nullable', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'is_active' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],

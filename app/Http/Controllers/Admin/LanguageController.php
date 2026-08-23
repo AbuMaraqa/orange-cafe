@@ -9,14 +9,13 @@ use App\Models\Language;
 use App\Services\LanguageRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class LanguageController extends Controller
 {
-    public function __construct(protected LanguageRegistry $registry)
-    {
-    }
+    public function __construct(protected LanguageRegistry $registry) {}
 
     public function index(): Response
     {
@@ -103,7 +102,7 @@ class LanguageController extends Controller
     }
 
     /**
-     * @return array<string, array{total: int, byLocale: \Illuminate\Support\Collection}>
+     * @return array<string, array{total: int, byLocale: Collection}>
      */
     protected function translationStatus($languages): array
     {

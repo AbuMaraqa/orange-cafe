@@ -30,7 +30,7 @@ class UpdateCategoryRequest extends FormRequest
             // submits it from a dropdown of configured printers) —
             // KitchenPrinterService looks printers up by this string.
             'station' => ['nullable', 'string', 'max:100', 'exists:printers,station'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            'image' => ['nullable', 'image', 'max:15360'],
             'is_active' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'translations' => ['required', 'array'],

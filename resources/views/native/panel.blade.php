@@ -330,11 +330,63 @@
             <hr class="divider">
 
             <p class="muted" style="margin-bottom:2px;">
+                يوقف كل الخدمات ويغلق البرنامج كاملاً — بدون بقايا تشتغل بالخلفية.
+                استخدمه قبل تنصيب نسخة جديدة.
+            </p>
+            <button type="button" class="btn-danger" id="shutdownBtn">إغلاق كامل</button>
+            <div class="msg" id="shutdownMsg"></div>
+
+            <hr class="divider">
+
+            <p class="muted" style="margin-bottom:2px;">
                 تحميل قائمة المطعم والحسابات على تنصيب فاضي. آمن تكرّره — الأصناف
                 الموجودة ما بتتغيّر.
             </p>
             <button type="button" class="btn-primary" id="seederBtn">Seeder</button>
             <div class="msg" id="seederMsg"></div>
+
+            <hr class="divider">
+
+            <p class="muted" style="margin-bottom:2px;">
+                حذف مهام الطباعة المعلّقة والفاشلة. استخدمه لما تتكدّس تذاكر قديمة
+                بسبب طابعة كانت مطفية — الطلبات نفسها ما بتتأثر.
+            </p>
+            <button type="button" class="btn-danger" id="clearQueueBtn">تفريغ طابور الطباعة</button>
+            <div class="msg" id="clearQueueMsg"></div>
+        </div>
+
+        <div class="card">
+            <h2>النسخ الاحتياطي</h2>
+
+            <p class="muted" style="margin-bottom:8px;">
+                نسخة واحدة بتحتوي قاعدة البيانات وصور المنتجات. بتنحفظ بمجلد
+                <span dir="ltr">OrangeCafe-Backups</span> بمجلد المستخدم.
+            </p>
+            <button type="button" class="btn-primary" id="backupExportBtn">إنشاء نسخة احتياطية</button>
+            <div class="msg" id="backupExportMsg"></div>
+
+            <hr class="divider">
+
+            <p class="muted" style="margin-bottom:2px;">استعادة نسخة سابقة:</p>
+            <p class="muted" style="margin-bottom:8px;color:#b91c1c;">
+                الاستعادة بتستبدل البيانات الحالية بالكامل. النسخة الحالية بتنحفظ جانباً
+                قبل الاستبدال، والخدمات بتتوقف وترجع تلقائياً.
+            </p>
+
+            @if (empty($backups))
+                <p class="placeholder">ما في نسخ احتياطية بعد.</p>
+            @else
+                <select id="backupPicker" style="width:100%;padding:8px;border-radius:6px;border:1px solid #d1d5db;margin-bottom:8px;">
+                    @foreach ($backups as $backup)
+                        <option value="{{ $backup['path'] }}">
+                            {{ $backup['name'] }} — {{ number_format($backup['size'] / 1048576, 1) }} م.ب
+                        </option>
+                    @endforeach
+                </select>
+                <button type="button" class="btn-danger" id="backupImportBtn">استعادة النسخة المحددة</button>
+            @endif
+
+            <div class="msg" id="backupImportMsg"></div>
         </div>
     </main>
 
@@ -344,6 +396,10 @@
         const restartUrl = @json(route('native.panel.restart'));
         const copyUrl = @json(route('native.panel.copy'));
         const loadDataUrl = @json(route('native.panel.load-data'));
+        const clearQueueUrl = @json(route('native.panel.clear-queue'));
+        const backupExportUrl = @json(route('native.panel.backup.export'));
+        const backupImportUrl = @json(route('native.panel.backup.import'));
+        const shutdownUrl = @json(route('native.panel.shutdown'));
         const dismissCredsUrl = @json(route('native.panel.credentials.dismiss'));
 
         const post = (url, body) => fetch(url, {
@@ -494,6 +550,74 @@
             }
         });
 
+        document.getElementById('backupExportBtn').addEventListener('click', async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            setMsg('backupExportMsg', 'جارِ إنشاء النسخة… قد يستغرق دقيقة حسب عدد الصور.');
+
+            try {
+                const res = await post(backupExportUrl);
+                const body = await res.json();
+
+                if (!res.ok || !body.success) throw new Error(body.error || '');
+
+                setMsg('backupExportMsg', `تم — ${body.size_mb} م.ب\n${body.path}`, 'ok');
+            } catch (err) {
+                setMsg('backupExportMsg', err.message || 'تعذر إنشاء النسخة.', 'bad');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('backupImportBtn')?.addEventListener('click', async (e) => {
+            const picker = document.getElementById('backupPicker');
+            if (!picker?.value) return;
+
+            if (!confirm('سيتم استبدال كل البيانات الحالية بمحتوى النسخة المحددة. متأكد؟')) return;
+
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            setMsg('backupImportMsg', 'جارِ الاستعادة… لا تغلق البرنامج.');
+
+            try {
+                const res = await post(backupImportUrl, { path: picker.value });
+                const body = await res.json();
+
+                if (!res.ok || !body.success) throw new Error(body.error || '');
+
+                const t = body.tables || {};
+                setMsg('backupImportMsg', `تمت الاستعادة — ${t.products ?? 0} صنف، ${t.orders ?? 0} طلبية.`, 'ok');
+                refreshStatus();
+            } catch (err) {
+                setMsg('backupImportMsg', err.message || 'تعذرت الاستعادة.', 'bad');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('clearQueueBtn').addEventListener('click', async (e) => {
+            if (!confirm('سيتم حذف كل مهام الطباعة المنتظرة. متأكد؟')) return;
+
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            setMsg('clearQueueMsg', 'جارِ التفريغ…');
+
+            try {
+                const res = await post(clearQueueUrl);
+                const body = await res.json();
+
+                if (!res.ok || !body.success) throw new Error(body.error || '');
+
+                const c = body.cleared || {};
+                setMsg('clearQueueMsg', `تم حذف ${c.pending ?? 0} مهمة منتظرة و ${c.failed ?? 0} فاشلة.`, 'ok');
+                refreshStatus();
+            } catch (err) {
+                setMsg('clearQueueMsg', err.message || 'تعذر تفريغ الطابور.', 'bad');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
         document.getElementById('seederBtn').addEventListener('click', async (e) => {
             if (!confirm('سيتم تحميل القائمة والحسابات. متأكد؟')) return;
 
@@ -513,6 +637,23 @@
                 setMsg('seederMsg', err.message || 'تعذر تحميل البيانات.', 'bad');
             } finally {
                 btn.disabled = false;
+            }
+        });
+
+        document.getElementById('shutdownBtn').addEventListener('click', async (e) => {
+            if (!confirm('سيتوقف الخادم لكل الأجهزة ويغلق البرنامج. متأكد؟')) return;
+
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            setMsg('shutdownMsg', 'جارِ إيقاف الخدمات وإغلاق البرنامج…');
+
+            try {
+                await post(shutdownUrl);
+                setMsg('shutdownMsg', 'تم — يمكنك إغلاق هذه النافذة.', 'ok');
+            } catch {
+                // The app quitting mid-request is the expected outcome here,
+                // so a dropped connection is success, not failure.
+                setMsg('shutdownMsg', 'تم الإغلاق.', 'ok');
             }
         });
 

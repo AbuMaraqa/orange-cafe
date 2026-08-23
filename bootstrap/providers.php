@@ -1,6 +1,9 @@
 <?php
 
+use App\Providers\AppServiceProvider;
+use App\Providers\LocalizationServiceProvider;
+
 return [
-    App\Providers\AppServiceProvider::class,
-    App\Providers\LocalizationServiceProvider::class,
+    AppServiceProvider::class,
+    LocalizationServiceProvider::class,
 ];

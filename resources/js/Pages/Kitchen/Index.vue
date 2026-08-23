@@ -20,7 +20,7 @@ const { orders } = useLiveOrders(() => props.orders);
 // Kitchen only cares about tickets it still needs to act on.
 const kitchenOrders = computed(() =>
     orders
-        .filter((o) => ['pending', 'confirmed', 'preparing'].includes(o.status))
+        .filter((o) => ['pending', 'confirmed'].includes(o.status))
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
 );
 
@@ -49,7 +49,7 @@ function printOrder(order) {
 
         <p v-if="kitchenOrders.length === 0" class="text-sm text-gray-500">{{ $t('staff.no_orders') }}</p>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <OrderCard
                 v-for="order in kitchenOrders"
                 :key="order.id"

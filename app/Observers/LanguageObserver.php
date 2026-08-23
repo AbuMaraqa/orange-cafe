@@ -7,9 +7,7 @@ use App\Services\LanguageRegistry;
 
 class LanguageObserver
 {
-    public function __construct(protected LanguageRegistry $registry)
-    {
-    }
+    public function __construct(protected LanguageRegistry $registry) {}
 
     public function saving(Language $language): void
     {

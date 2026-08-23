@@ -16,9 +16,7 @@ class WaiterCallAcknowledged implements ShouldBroadcastNow
 {
     use InteractsWithSockets, SerializesModels;
 
-    public function __construct(public WaiterCall $call)
-    {
-    }
+    public function __construct(public WaiterCall $call) {}
 
     public function broadcastOn(): array
     {

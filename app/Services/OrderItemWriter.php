@@ -19,12 +19,46 @@ use Illuminate\Validation\ValidationException;
 class OrderItemWriter
 {
     /**
-     * @param  array<int, array{menu_item_id:int, quantity:int, notes?:?string, modifier_ids?:array}>  $lines
-     * @return int total cents added across all lines
+     * An existing line on this order that the incoming one should merge into,
+     * or null when it is genuinely a different thing.
+     *
+     * @param  Collection<int, Modifier>  $modifiers
      */
-    public function addLines(Order $order, array $lines): int
+    protected function matchingLine(Order $order, MenuItem $menuItem, Collection $modifiers, ?string $notes)
+    {
+        $wanted = $modifiers->pluck('id')->sort()->values()->all();
+        $notes = trim((string) $notes);
+
+        return $order->items()
+            ->with('modifiers')
+            ->where('menu_item_id', $menuItem->id)
+            ->get()
+            ->first(function ($item) use ($wanted, $notes) {
+                if (trim((string) $item->notes) !== $notes) {
+                    return false;
+                }
+
+                $have = $item->modifiers->pluck('modifier_id')->sort()->values()->all();
+
+                return $have === $wanted;
+            });
+    }
+
+    /**
+     * @param  array<int, array{menu_item_id:int, quantity:int, notes?:?string, modifier_ids?:array}>  $lines
+     * @param  array<int, int>|null  $added  filled with [orderItemId => quantity added by this call]
+     * @return int total cents added across all lines
+     *
+     * `$added` is a map rather than a list of ids because this method
+     * merges: ordering two more of something already on the ticket bumps
+     * that line to five rather than writing a second line of two. A caller
+     * printing "what was just added" needs the two, not the five — send the
+     * kitchen the line's new total and they cook the whole thing again.
+     */
+    public function addLines(Order $order, array $lines, ?array &$added = null): int
     {
         $addedCents = 0;
+        $added = [];
 
         foreach ($lines as $line) {
             $menuItem = MenuItem::with('product.modifierGroups.modifiers', 'product.modifierOverrides', 'category')->findOrFail($line['menu_item_id']);
@@ -35,13 +69,39 @@ class OrderItemWriter
             }
 
             $modifiers = $this->resolveModifiers($product, $line['modifier_ids'] ?? []);
-            // A modifier's price can be overridden per product (see
-            // Product::effectiveModifierPriceCents), so this — not the
-            // modifier's own price_cents — is the authoritative amount.
-            $unitPrice = $menuItem->effectivePriceCents()
-                + $modifiers->sum(fn (Modifier $modifier) => $product->effectiveModifierPriceCents($modifier));
+            // Product::unitPriceCents owns the arithmetic — a variation
+            // (small/medium/large) replaces the menu price, an extra adds to
+            // it, and per-product price overrides are resolved inside. This
+            // used to be a `+` written out here, which silently charged a
+            // sized dish its base price *plus* the size.
+            $unitPrice = $product->unitPriceCents($modifiers, $menuItem->effectivePriceCents());
             $subtotal = $unitPrice * $line['quantity'];
             $addedCents += $subtotal;
+
+            // Ordering the same thing again adds to the line that is already
+            // there. Two guests each asking for an orange juice, or one guest
+            // adding a second later, is one line reading "×3" — not three
+            // lines of "×1" that the kitchen has to add up, the waiter has to
+            // read past, and the customer has to trust.
+            //
+            // "The same thing" means the same menu item with the same
+            // modifiers and the same note: a juice with no ice is a different
+            // drink from a juice with ice, and merging them would send the
+            // kitchen an instruction nobody gave.
+            $existing = $this->matchingLine($order, $menuItem, $modifiers, $line['notes'] ?? null);
+
+            if ($existing) {
+                $existing->quantity += $line['quantity'];
+                // Recomputed from the stored unit price rather than added to,
+                // so a line stays internally consistent even if it was
+                // written before a price change.
+                $existing->subtotal_cents = $existing->unit_price_cents * $existing->quantity;
+                $existing->save();
+
+                $added[$existing->id] = ($added[$existing->id] ?? 0) + $line['quantity'];
+
+                continue;
+            }
 
             $item = $order->items()->create([
                 'product_id' => $product->id,
@@ -53,6 +113,8 @@ class OrderItemWriter
                 'subtotal_cents' => $subtotal,
                 'notes' => $line['notes'] ?? null,
             ]);
+
+            $added[$item->id] = ($added[$item->id] ?? 0) + $line['quantity'];
 
             foreach ($modifiers as $modifier) {
                 $item->modifiers()->create([
@@ -83,6 +145,15 @@ class OrderItemWriter
 
         foreach ($product->modifierGroups as $group) {
             $chosen = $selected->filter(fn (Modifier $modifier) => $modifier->modifier_group_id === $group->id)->count();
+
+            // A variation group is the product's price, so exactly one is
+            // the only selection that means anything: none leaves the line
+            // with no price at all, two would silently keep whichever came
+            // first. Checked before the generic rules so the message names
+            // the real problem.
+            if ($group->is_variation && $chosen !== 1) {
+                throw ValidationException::withMessages(['items' => __('menu.variation_required', ['group' => $group->name])]);
+            }
 
             if ($group->is_required && $chosen < max($group->min_select, 1)) {
                 throw ValidationException::withMessages(['items' => __('menu.modifier_group_required', ['group' => $group->name])]);

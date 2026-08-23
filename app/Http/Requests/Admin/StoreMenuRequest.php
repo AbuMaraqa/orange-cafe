@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Enums\MenuPublishStatus;
 use App\Services\LanguageRegistry;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Enum;
@@ -20,7 +21,7 @@ class StoreMenuRequest extends FormRequest
 
         $rules = [
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', 'unique:menus,slug'],
-            'publish_status' => ['required', new Enum(\App\Enums\MenuPublishStatus::class)],
+            'publish_status' => ['required', new Enum(MenuPublishStatus::class)],
             'is_active' => ['sometimes', 'boolean'],
             'starts_at' => ['nullable', 'date'],
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],

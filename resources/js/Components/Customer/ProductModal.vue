@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import NavIcon from '@/Components/NavIcon.vue';
+import { unitPriceCents } from '@/composables/useProductPricing';
 
 const props = defineProps({
     product: {
@@ -77,14 +78,19 @@ const canSubmit = computed(() =>
     }),
 );
 
-const totalCents = computed(() => {
-    const modifiersCents = props.product.modifier_groups.reduce((sum, group) => {
+/** Every modifier the customer has ticked, flattened across the groups. */
+const chosenModifiers = computed(() =>
+    props.product.modifier_groups.flatMap((group) => {
         const chosen = selections[group.id] ?? [];
-        return sum + group.modifiers.filter((m) => chosen.includes(m.id)).reduce((s, m) => s + m.price_cents, 0);
-    }, 0);
 
-    return (props.product.price_cents + modifiersCents) * quantity.value;
-});
+        return group.modifiers.filter((m) => chosen.includes(m.id));
+    })
+);
+
+// useProductPricing owns the rule, shared with the cart and the server: a
+// size replaces the price, an extra adds to it. Adding them all to the
+// base here is what showed a sized burger at base + size.
+const totalCents = computed(() => unitPriceCents(props.product, chosenModifiers.value) * quantity.value);
 
 function formatPrice(cents) {
     return `${props.currencySymbol}${(cents / 100).toFixed(2)}`;
@@ -156,7 +162,17 @@ function confirm() {
                             @click="toggleModifier(group, modifier)"
                         >
                             <span class="text-gray-700 dark:text-gray-300">{{ modifier.name }}</span>
-                            <span class="text-gray-500">{{ modifier.price_cents > 0 ? `+${formatPrice(modifier.price_cents)}` : '' }}</span>
+                            <!-- A size *is* the price, so it is written as a
+                                 price. Only an extra is a surcharge, and only
+                                 an extra gets the plus. Showing "+30" beside a
+                                 size told the customer it would be added to
+                                 the 30 already on the card — which is exactly
+                                 what the basket then did. -->
+                            <span class="text-gray-500">
+                                {{ group.is_variation
+                                    ? formatPrice(modifier.price_cents)
+                                    : (modifier.price_cents > 0 ? `+${formatPrice(modifier.price_cents)}` : '') }}
+                            </span>
                         </label>
                     </div>
                 </div>

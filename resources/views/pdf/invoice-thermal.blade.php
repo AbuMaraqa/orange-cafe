@@ -77,6 +77,12 @@
             <tr>
                 <td>
                     {{ $item->quantity }}× {{ $item->product_name }}
+                    {{-- No section on the customer's bill, by request: a paying
+                         customer reads a list of what they ordered, and the
+                         kitchen's own filing of it is noise on a receipt they
+                         are checking against their table. It moved to the
+                         kitchen ticket, where the person reading it is the
+                         person the section is for. --}}
                     @if ($item->modifiers->isNotEmpty())
                         <div class="modifiers">{{ $item->modifiers->pluck('modifier_name')->implode(', ') }}</div>
                     @endif
@@ -92,6 +98,18 @@
     <div class="divider"></div>
 
     <table class="totals">
+        {{-- On a receipt the discount is the line the customer looks for.
+             It only appears when there is one, above the total it produced. --}}
+        @if (($order->discount_cents ?? 0) > 0)
+            <tr>
+                <td>{{ $labels['subtotal'] }}</td>
+                <td class="end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format(($order->total_cents + $order->discount_cents) / 100, 2) }}</td>
+            </tr>
+            <tr>
+                <td>{{ $labels['order_discount'] }}@if ($order->discount_reason) ({{ $order->discount_reason }})@endif</td>
+                <td class="end">−<span class="currency">{{ $currencySymbol }}</span>{{ number_format($order->discount_cents / 100, 2) }}</td>
+            </tr>
+        @endif
         <tr>
             <td class="grand">{{ $labels['total'] }}</td>
             <td class="end grand"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($order->total_cents / 100, 2) }}</td>

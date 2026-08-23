@@ -17,11 +17,11 @@ class UpdateRestaurantSettingRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'tagline' => ['nullable', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:255'],
-            'logo' => ['nullable', 'image', 'max:2048'],
-            'cover_image' => ['nullable', 'image', 'max:4096'],
+            'logo' => ['nullable', 'image', 'max:15360'],
+            'cover_image' => ['nullable', 'image', 'max:15360'],
             'primary_color' => ['required', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'secondary_color' => ['required', 'regex:/^#[0-9a-fA-F]{6}$/'],
-            'font_family' => ['required', 'in:tajawal,almarai,system'],
+            'font_family' => ['required', 'in:tajawal,almarai,plex-arabic,system'],
             'currency_code' => ['required', 'string', 'max:3'],
             'currency_symbol' => ['required', 'string', 'max:8'],
             'phone' => ['nullable', 'string', 'max:30'],
@@ -31,6 +31,8 @@ class UpdateRestaurantSettingRequest extends FormRequest
             'wifi_ssid' => ['nullable', 'string', 'max:255'],
             'wifi_password' => ['nullable', 'string', 'max:255'],
             'receipt_footer_text' => ['nullable', 'string', 'max:500'],
+            // "HH:MM" as the browser's time input writes it. See BusinessDay.
+            'business_day_starts_at' => ['required', 'date_format:H:i'],
         ];
     }
 }

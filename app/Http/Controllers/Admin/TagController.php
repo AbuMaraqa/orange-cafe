@@ -16,9 +16,7 @@ class TagController extends Controller
 {
     use FillsMissingTranslations;
 
-    public function __construct(protected LanguageRegistry $registry)
-    {
-    }
+    public function __construct(protected LanguageRegistry $registry) {}
 
     public function index(): Response
     {

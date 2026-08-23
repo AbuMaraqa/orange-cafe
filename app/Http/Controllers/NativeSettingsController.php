@@ -3,18 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Models\Printer;
+use App\Services\Native\BackupService;
 use App\Services\Native\NativeEnvSettings;
 use App\Services\Native\NativeNetworkInfo;
 use App\Services\Native\NativeServices;
 use App\Services\Native\PublicUrlResolver;
 use App\Services\Printing\PopplerBinary;
 use App\Services\Printing\UsbPrinterTransport;
-use Illuminate\Http\Request;
 use Database\Seeders\LegacyOrangeDataSeeder;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Native\Laravel\Client\Client;
+use Native\Laravel\Facades\App as NativeApp;
 use Native\Laravel\Facades\Clipboard;
 use Native\Laravel\Facades\Settings as NativeSettings;
 
@@ -59,6 +61,7 @@ class NativeSettingsController extends Controller
                 'detectedPublicUrl' => $publicUrl->base(),
             ],
             'firstRun' => $this->firstRunCredentials(),
+            'backups' => app(BackupService::class)->available(),
         ]);
     }
 
@@ -125,11 +128,17 @@ class NativeSettingsController extends Controller
         $saved = $envSettings->get(['REVERB_PORT', 'LAN_SERVER_PORT']);
         $running = $this->runningConfig() ?? $saved;
 
-        // Always loopback: Reverb binds 0.0.0.0 on this machine, so this asks
-        // "did it come up here" — the only question this panel can answer.
-        // Which address the tablets dial is decided by their own page's host.
-        $reverbHost = '127.0.0.1';
+        // Probed on the LAN address, not loopback.
+        //
+        // Loopback answers the wrong question. Reverb binds 0.0.0.0, but so
+        // does anything else already on that port — and when Laragon's nginx
+        // held 8080, 127.0.0.1:8080 answered, this panel went green, and
+        // every tablet on the network got "403 Forbidden — nginx" instead of
+        // live updates. The panel spent the whole day insisting the service
+        // was fine. The address the tablets dial is the only one worth
+        // checking, so that is the one checked.
         $reverbPort = (int) ($running['REVERB_PORT'] ?: 8080);
+        $reverbHost = $network->lanIpAddresses()[0] ?? '127.0.0.1';
         $lanPort = (int) ($running['LAN_SERVER_PORT'] ?: 8000);
 
         $pendingRestart = collect($saved)
@@ -154,8 +163,13 @@ class NativeSettingsController extends Controller
             // every reading below describes the old configuration.
             'pending_restart' => $pendingRestart,
             'database' => ['ok' => $databaseReachable],
+            // `conflict` names the foreign server squatting the port, when
+            // there is one. Naming it is the difference between "البث اللحظي
+            // متوقف" — which sends someone hunting through this app — and
+            // "nginx is on 8080", which tells them exactly what to close or
+            // which port to change.
             'reverb' => [
-                'ok' => $network->portOpen($reverbHost, $reverbPort),
+                ...$this->reverbHealth($network, $reverbHost, $reverbPort),
                 'process' => $this->processAlive($processes, 'reverb'),
                 'host' => $reverbHost,
                 'port' => $reverbPort,
@@ -264,6 +278,165 @@ class NativeSettingsController extends Controller
     }
 
     /**
+     * Shuts the whole thing down — services first, then the app itself.
+     *
+     * The tray's own Quit relies on Electron killing its children, and
+     * NativePHP's source is candid that it does not always manage it
+     * ("Sometimes does not kill the subprocess of php server"). What
+     * survives is `artisan serve` and `reverb:start` holding ports 8000 and
+     * 8080, which is why the next launch appears to do nothing at all.
+     *
+     * Stopping the children through the daemon first — and waiting for the
+     * ports to actually come free — leaves nothing behind to survive.
+     */
+    public function shutdown(NativeServices $services)
+    {
+        try {
+            $services->stopAll();
+        } catch (\Throwable $e) {
+            Log::warning('Could not stop the services cleanly before quitting.', ['error' => $e->getMessage()]);
+        }
+
+        // Quitting kills the very server that has to deliver this reply,
+        // so it is deferred to after the response has been sent — otherwise
+        // the panel sits waiting on a request that can never arrive and
+        // shows a failure for a shutdown that worked.
+        app()->terminating(function () {
+            try {
+                NativeApp::quit();
+            } catch (\Throwable $e) {
+                Log::warning('Could not quit the app after stopping the services.', ['error' => $e->getMessage()]);
+            }
+        });
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * The tray's "إغلاق الخادم", which is how the app is actually closed.
+     *
+     * Identical work to shutdown() above — stop the children, then quit —
+     * but reachable by navigation, because a tray menu item can only open a
+     * URL, and the item there used to be NativePHP's built-in quit. That
+     * quits Electron and leaves the LAN server, Reverb, the queue and the
+     * scheduler running, so "closed" meant a `php -S` still holding port
+     * 8000 and a next launch fighting its own corpse for it.
+     *
+     * It shows a plain page while it happens: the window is visibly on
+     * screen for the second or two it takes, and a page of JSON is not an
+     * answer to "close the server".
+     */
+    public function shutdownPage(NativeServices $services)
+    {
+        $this->shutdown($services);
+
+        return response(
+            '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">'
+            .'<title>إغلاق الخادم</title><style>'
+            .'body{font-family:system-ui,sans-serif;display:flex;align-items:center;'
+            .'justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#334155}'
+            .'</style></head><body><p>جارٍ إيقاف الخدمات وإغلاق الخادم…</p></body></html>'
+        );
+    }
+
+    /**
+     * Writes a backup and reports where it landed.
+     */
+    public function exportBackup(BackupService $backups)
+    {
+        try {
+            $path = $backups->export();
+
+            return response()->json([
+                'success' => true,
+                'path' => $path,
+                'size_mb' => round((filesize($path) ?: 0) / 1048576, 1),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Backup export failed', ['error' => $e->getMessage()]);
+
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Restores a backup over the live data, then brings the services back on
+     * the restored database.
+     *
+     * The order matters and is the whole reason this is not just a file
+     * copy: `artisan serve`, the queue worker and the scheduler all hold the
+     * SQLite file open, and overwriting a file underneath a reader produces
+     * "database disk image is malformed" rather than a restore.
+     */
+    public function importBackup(Request $request, BackupService $backups, NativeServices $services)
+    {
+        $validated = $request->validate([
+            'path' => ['required', 'string'],
+        ]);
+
+        try {
+            $services->stopAll();
+
+            $tables = $backups->import($validated['path']);
+
+            $services->startAll();
+            $services->recordRunningConfig();
+
+            return response()->json(['success' => true, 'tables' => $tables]);
+        } catch (\Throwable $e) {
+            Log::error('Backup import failed', ['error' => $e->getMessage()]);
+
+            // Whatever went wrong, the cafe must not be left with its
+            // services down on top of it.
+            try {
+                $services->startAll();
+            } catch (\Throwable) {
+                // Reported below either way.
+            }
+
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Empties the print queue.
+     *
+     * A printer that is switched off does not lose its tickets: each job
+     * retries every 30s for a full day (PrintOrderTicket::retryUntil), so a
+     * till printer left off overnight comes back to hundreds of queued
+     * receipts and prints the lot. By then they are history — the tables
+     * have long since paid and gone — and someone has to stand there
+     * tearing off paper while today's orders wait behind them.
+     *
+     * Clearing pending and failed jobs together, because a failed job is
+     * just as stale: nothing here is worth printing late.
+     */
+    public function clearQueue()
+    {
+        try {
+            $pending = DB::table('jobs')->count();
+            $failed = DB::table('failed_jobs')->count();
+
+            DB::table('jobs')->delete();
+            DB::table('failed_jobs')->delete();
+
+            Log::info('Print queue cleared from the control panel.', [
+                'pending' => $pending,
+                'failed' => $failed,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'cleared' => ['pending' => $pending, 'failed' => $failed],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Could not clear the print queue', ['error' => $e->getMessage()]);
+
+            return response()->json(['success' => false, 'error' => 'تعذر تفريغ الطابور.'], 500);
+        }
+    }
+
+    /**
      * Copies text to the system clipboard through Electron.
      *
      * The panel's copy buttons try navigator.clipboard first, which fails in
@@ -330,6 +503,27 @@ class NativeSettingsController extends Controller
      *
      * @return array<string, string>|null
      */
+    /**
+     * Reverb is only "ok" when the port answers AND the thing answering is
+     * ours.
+     *
+     * A port answered by someone else is the worst of the three states: it
+     * looks healthy from every angle except the one that matters, and
+     * nobody debugging dead live-updates has any reason to suspect the port
+     * itself. Naming the squatter turns a day of hunting into one glance.
+     *
+     * @return array{ok: bool, conflict: string|null}
+     */
+    private function reverbHealth(NativeNetworkInfo $network, string $host, int $port): array
+    {
+        $result = $network->identifyServer($host, $port);
+
+        return [
+            'ok' => $result['reachable'] && $result['conflict'] === null,
+            'conflict' => $result['conflict'],
+        ];
+    }
+
     private function runningConfig(): ?array
     {
         try {

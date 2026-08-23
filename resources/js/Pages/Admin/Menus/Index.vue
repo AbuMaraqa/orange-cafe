@@ -2,9 +2,11 @@
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
+import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import draggable from 'vuedraggable';
 
-defineProps({
+const props = defineProps({
     menus: {
         type: Array,
         required: true,
@@ -16,6 +18,20 @@ defineProps({
 });
 
 const { t } = useI18n();
+
+// draggable mutates what it is bound to, and props are read-only; re-seeded
+// whenever the server sends a new list.
+const rows = ref([...props.menus]);
+
+watch(() => props.menus, (menus) => { rows.value = [...menus]; });
+
+function persistOrder() {
+    router.patch(
+        route('admin.menus.reorder'),
+        { order: rows.value.map((menu) => menu.id) },
+        { preserveScroll: true },
+    );
+}
 
 const statusClasses = {
     draft: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
@@ -50,6 +66,7 @@ function destroy(menu) {
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
                 <thead class="bg-gray-50 dark:bg-gray-900/60">
                     <tr class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        <th class="w-8 px-2 py-3"></th>
                         <th class="px-4 py-3 text-start">{{ $t('common.name') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.menus.publish_status') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('common.status') }}</th>
@@ -58,8 +75,23 @@ function destroy(menu) {
                         <th class="px-4 py-3 text-end">{{ $t('common.actions') }}</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                    <tr v-for="menu in menus" :key="menu.id">
+                <draggable
+                    v-model="rows"
+                    tag="tbody"
+                    item-key="id"
+                    handle=".menu-drag-handle"
+                    class="divide-y divide-gray-200 dark:divide-gray-800"
+                    @end="persistOrder"
+                >
+                    <template #item="{ element: menu }">
+                    <tr>
+                        <td class="w-8 px-2 py-3 text-center">
+                            <span
+                                v-if="rows.length > 1"
+                                class="menu-drag-handle cursor-move select-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                :title="$t('admin.menus.drag_to_reorder')"
+                            >⋮⋮</span>
+                        </td>
                         <td class="whitespace-nowrap px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
                             {{ menu.name }}
                         </td>
@@ -105,8 +137,13 @@ function destroy(menu) {
                             </div>
                         </td>
                     </tr>
-                </tbody>
+                    </template>
+                </draggable>
             </table>
         </div>
+
+        <p v-if="rows.length > 1" class="mt-2 text-xs text-gray-400">
+            {{ $t('admin.menus.drag_hint') }}
+        </p>
     </AuthenticatedLayout>
 </template>

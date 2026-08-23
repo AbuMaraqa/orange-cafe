@@ -54,6 +54,34 @@ function hasNotes(order) {
 
 const expandedId = ref(null);
 
+// Which line is being repriced, and the value being typed. Prices are held
+// in cents everywhere else; the box shows currency units because that is
+// what an administrator is reading off a bill.
+const editingItemId = ref(null);
+const editingPrice = ref(0);
+
+function startEditingPrice(item) {
+    editingItemId.value = item.id;
+    editingPrice.value = Number((item.unit_price_cents / 100).toFixed(2));
+}
+
+function saveItemPrice(order, item) {
+    const cents = Math.round(Number(editingPrice.value) * 100);
+
+    if (!Number.isFinite(cents) || cents < 0) {
+        return;
+    }
+
+    router.patch(
+        route('orders.items.update', [order.id, item.id]),
+        { unit_price_cents: cents },
+        {
+            preserveScroll: true,
+            onSuccess: () => { editingItemId.value = null; },
+        }
+    );
+}
+
 function toggleExpanded(order) {
     expandedId.value = expandedId.value === order.id ? null : order.id;
 }
@@ -160,12 +188,53 @@ function toggleExpanded(order) {
                         <tr v-if="expandedId === order.id" class="bg-gray-50 dark:bg-gray-800/40">
                             <td colspan="7" class="px-4 py-3">
                                 <ul class="space-y-1.5 text-sm text-gray-700 dark:text-gray-300">
-                                    <li v-for="item in order.items" :key="item.id">
-                                        <span class="font-medium">{{ item.quantity }}×</span> {{ item.product_name }}
-                                        <span v-if="item.modifiers.length" class="text-gray-400">({{ item.modifiers.join(', ') }})</span>
-                                        <div v-if="item.notes" class="ms-4 flex items-start gap-1 text-xs italic text-amber-600 dark:text-amber-500">
-                                            <NavIcon name="note" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                            {{ item.notes }}
+                                    <li v-for="item in order.items" :key="item.id" class="flex flex-wrap items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <span class="font-medium">{{ item.quantity }}×</span> {{ item.product_name }}
+                                            <span v-if="item.modifiers.length" class="text-gray-400">({{ item.modifiers.join(', ') }})</span>
+                                            <div v-if="item.notes" class="ms-4 flex items-start gap-1 text-xs italic text-amber-600 dark:text-amber-500">
+                                                <NavIcon name="note" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                                {{ item.notes }}
+                                            </div>
+                                        </div>
+
+                                        <!-- Editing is offered only while the bill is still open: once
+                                             money has been taken the recorded total has to keep matching
+                                             what was collected. -->
+                                        <div class="flex shrink-0 items-center gap-2">
+                                            <template v-if="editingItemId === item.id">
+                                                <input
+                                                    v-model.number="editingPrice"
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    class="w-24 rounded-md border-gray-300 py-1 text-sm tabular-nums dark:border-gray-700 dark:bg-gray-950"
+                                                    @keyup.enter="saveItemPrice(order, item)"
+                                                    @keyup.esc="editingItemId = null"
+                                                />
+                                                <button type="button" class="text-xs font-medium text-green-600" @click="saveItemPrice(order, item)">
+                                                    {{ $t('common.save') }}
+                                                </button>
+                                                <button type="button" class="text-xs text-gray-400" @click="editingItemId = null">
+                                                    {{ $t('common.cancel') }}
+                                                </button>
+                                            </template>
+
+                                            <template v-else>
+                                                <span class="text-xs text-gray-400 tabular-nums">
+                                                    {{ formatPrice(item.unit_price_cents) }} × {{ item.quantity }}
+                                                </span>
+                                                <span class="w-20 text-end text-sm font-medium tabular-nums">{{ formatPrice(item.subtotal_cents) }}</span>
+                                                <button
+                                                    v-if="!order.is_paid"
+                                                    type="button"
+                                                    class="text-xs font-medium"
+                                                    style="color: var(--brand-primary)"
+                                                    @click="startEditingPrice(item)"
+                                                >
+                                                    {{ $t('common.edit') }}
+                                                </button>
+                                            </template>
                                         </div>
                                     </li>
                                 </ul>

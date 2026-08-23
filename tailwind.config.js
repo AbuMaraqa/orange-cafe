@@ -30,6 +30,7 @@ export default {
                 // Opt-in brand fonts, chosen per-restaurant from Settings.
                 tajawal: ['Tajawal', ...defaultTheme.fontFamily.sans],
                 almarai: ['Almarai', ...defaultTheme.fontFamily.sans],
+                'plex-arabic': ['IBM Plex Sans Arabic', ...defaultTheme.fontFamily.sans],
             },
         },
     },

@@ -1,4 +1,6 @@
 import { onMounted, onUnmounted, reactive, watch } from 'vue';
+import { router } from '@inertiajs/vue3';
+import { joinOrdersChannel, onSocketReconnect } from '@/composables/useOrdersChannel';
 
 /**
  * Keeps a staff dashboard's order list in sync in real time over the
@@ -38,20 +40,39 @@ export function useLiveOrders(getOrders) {
         }
     });
 
-    let channel = null;
+    // Reference counted — see useOrdersChannel. Leaving the channel
+    // outright would deafen anything else listening on this same page.
+    let leaveChannel = null;
+    let unbindReconnect = null;
 
     onMounted(async () => {
-        if (!window.Echo) {
-            await import('../echo');
-        }
+        leaveChannel = await joinOrdersChannel({
+            '.order.placed': (event) => upsert(event.order, true),
+            '.order.status-updated': (event) => upsert(event.order, false),
+        });
 
-        channel = window.Echo.private('orders');
-        channel.listen('.order.placed', (event) => upsert(event.order, true));
-        channel.listen('.order.status-updated', (event) => upsert(event.order, false));
+        // Anything broadcast while the socket was away is simply gone — the
+        // channel replays nothing on reconnect. Without this the kitchen
+        // screen silently misses every order placed during the outage and
+        // never recovers, because the correction *was* the missed event: it
+        // stays wrong until somebody reloads the page, and nothing on screen
+        // suggests anything is missing.
+        //
+        // The floor plan has always done this (useStaffFloorPlan); the order
+        // lists — kitchen and the admin dashboard — never did.
+        //
+        // `only` keeps it to this screen's own props rather than a full page
+        // load, and the props watcher above reconciles the result: existing
+        // orders are patched in place, ones that have since disappeared are
+        // dropped, and anything missed arrives as new.
+        unbindReconnect = onSocketReconnect(() => {
+            router.reload({ only: ['orders'] });
+        });
     });
 
     onUnmounted(() => {
-        window.Echo?.leave('orders');
+        leaveChannel?.();
+        unbindReconnect?.();
     });
 
     return { orders };

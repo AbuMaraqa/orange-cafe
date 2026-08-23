@@ -10,8 +10,8 @@ use App\Models\RestaurantTable;
 use App\Services\KitchenPrinterService;
 use App\Services\MenuCatalogPresenter;
 use App\Services\OrderItemWriter;
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -73,8 +73,15 @@ class WaiterOrderController extends Controller
     {
         $data = $request->validated();
 
-        DB::transaction(function () use ($order, $data, $writer) {
-            $addedCents = $writer->addLines($order, $data['items']);
+        // What this round actually added, per line — see addLines(). Needed
+        // outside the transaction because the ticket is queued after it
+        // commits, and never inside it: a print job dispatched from within
+        // a transaction that then rolls back is paper for food nobody
+        // ordered.
+        $added = [];
+
+        DB::transaction(function () use ($order, $data, $writer, &$added) {
+            $addedCents = $writer->addLines($order, $data['items'], $added);
             $order->increment('total_cents', $addedCents);
 
             // The kitchen already considered this order done — adding more
@@ -86,11 +93,28 @@ class WaiterOrderController extends Controller
         });
 
         $this->safeBroadcast(new OrderStatusUpdated($order->fresh()), toOthers: true);
-        // Reprints the whole running ticket (not just what was just added) —
-        // acceptable for now since kitchen staff already expect a fresh
-        // ticket to represent the order's current full state.
-        $printer->queuePrintJobs($order);
+        // Just this round, on its own slip.
+        //
+        // It used to ask for the whole running ticket, and the result was
+        // worse than a reprint: PrintJob's idempotency key is derived from
+        // the order, printer, station and kind — nothing about the items —
+        // so the key matched the ticket that had already printed, reserve()
+        // saw a settled job and handed back null, and *nothing was queued
+        // at all*. A waiter added a round to a confirmed table and the
+        // kitchen was never told, silently.
+        //
+        // Scoping to the added lines gives the round its own key as well as
+        // its own paper, so it both prints and cannot be mistaken for a
+        // duplicate of the first ticket.
+        $printer->queuePrintJobs($order, onlyItemIds: $added);
 
-        return to_route('waiter.index')->with('success', __('menu.order_placed'));
+        // Their own screen, not the waiter's — a cashier adding a round to a
+        // running table has no access to /waiter and would be answered with
+        // a 403 for a request that succeeded. And back onto the table the
+        // round was added to, which is the one they were looking at.
+        return to_route(
+            $request->user()->homeRouteName(),
+            $order->table_id ? ['table' => $order->table_id] : [],
+        )->with('success', __('menu.order_placed'));
     }
 }

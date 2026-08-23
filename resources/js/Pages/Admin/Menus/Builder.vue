@@ -1,8 +1,11 @@
 <script setup>
-import { reactive, ref, watch } from 'vue';
+import { computed, provide, ref, watch } from 'vue';
+import Modal from '@/Components/Modal.vue';
 import NavIcon from '@/Components/NavIcon.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import MenuSection from './Partials/MenuSection.vue';
+import ProductPicker from './Partials/ProductPicker.vue';
+import { Head, Link, router } from '@inertiajs/vue3';
 import draggable from 'vuedraggable';
 import { useI18n } from 'vue-i18n';
 
@@ -23,14 +26,13 @@ const props = defineProps({
         type: Array,
         required: true,
     },
+    tags: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const { t } = useI18n();
-const page = usePage();
-
-function formatPrice(cents) {
-    return `${page.props.branding.currency_symbol}${(cents / 100).toFixed(2)}`;
-}
 
 function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -39,62 +41,97 @@ function clone(value) {
 const sectionsList = ref(clone(props.sections));
 watch(() => props.sections, (val) => { sectionsList.value = clone(val); });
 
-const newSectionName = ref('');
-const addingSection = ref(false);
+/**
+ * Sections are a tree now, so "how many products are on this menu" is a
+ * walk rather than a sum of one level.
+ */
+const totals = computed(() => {
+    let sections = 0;
+    let items = 0;
+
+    const walk = (list) => {
+        list.forEach((section) => {
+            sections += 1;
+            items += section.items.length;
+            walk(section.children);
+        });
+    };
+
+    walk(sectionsList.value);
+
+    return { sections, items };
+});
+
+/* ---------------------------------------------------------------- sections */
+
+const sectionForm = ref({ show: false, parent: null, name: '', processing: false });
 
 function slugify(value) {
     return value.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_-]/gu, '');
 }
 
-function addSection() {
-    if (!newSectionName.value.trim() || !props.defaultLocale) return;
-    addingSection.value = true;
+function openSectionForm(parent = null) {
+    sectionForm.value = { show: true, parent, name: '', processing: false };
+}
+
+function submitSectionForm() {
+    const { name, parent } = sectionForm.value;
+    if (!name.trim() || !props.defaultLocale) return;
+
+    sectionForm.value.processing = true;
+
     router.post(route('admin.menus.sections.store', props.menu.id), {
-        slug: slugify(newSectionName.value) || `section-${Date.now()}`,
-        translations: { [props.defaultLocale.code]: { name: newSectionName.value } },
+        // Slugs are global across categories, so two menus each wanting a
+        // "مشروبات" section would collide on the second one. The suffix
+        // keeps the name the administrator typed while staying unique.
+        slug: `${slugify(name) || 'section'}-${Date.now().toString(36)}`,
+        parent_id: parent?.id ?? null,
+        translations: { [props.defaultLocale.code]: { name } },
     }, {
         preserveScroll: true,
-        onSuccess: () => { newSectionName.value = ''; },
-        onFinish: () => { addingSection.value = false; },
+        onSuccess: () => { sectionForm.value.show = false; },
+        onFinish: () => { sectionForm.value.processing = false; },
     });
 }
 
 function removeSection(section) {
-    if (!confirm(`${section.name}: ` + t('common.are_you_sure'))) return;
+    const warning = section.total_item_count > 0
+        ? t('admin.menus.remove_section_with_items', { count: section.total_item_count })
+        : t('common.are_you_sure');
+
+    if (!confirm(`${section.name}: ${warning}`)) return;
+
     router.delete(route('admin.menus.sections.destroy', section.id), { preserveScroll: true });
 }
 
-function onSectionsReorder() {
+function toggleSectionActive(section) {
+    router.patch(route('admin.menus.sections.update', section.id), {
+        is_active: !section.is_active,
+    }, { preserveScroll: true });
+}
+
+function reorderSections(parentId, list) {
     router.patch(route('admin.menus.sections.reorder', props.menu.id), {
-        ids: sectionsList.value.map((s) => s.id),
+        parent_id: parentId,
+        ids: list.map((s) => s.id),
     }, { preserveScroll: true, preserveState: true });
 }
 
-function onItemsReorder(section) {
-    router.patch(route('admin.menus.items.reorder', section.id), {
-        ids: section.items.map((i) => i.id),
-    }, { preserveScroll: true, preserveState: true });
+/* ------------------------------------------------------------------- items */
+
+const picker = ref({ show: false, section: null, processing: false });
+
+function openPicker(section) {
+    picker.value = { show: true, section, processing: false };
 }
 
-const newItemState = reactive({});
+function addProducts(payload) {
+    picker.value.processing = true;
 
-function ensureItemState(sectionId) {
-    if (!newItemState[sectionId]) {
-        newItemState[sectionId] = { product_id: '', price_cents: '' };
-    }
-    return newItemState[sectionId];
-}
-
-function addItem(section) {
-    const state = ensureItemState(section.id);
-    if (!state.product_id) return;
-
-    router.post(route('admin.menus.items.store', section.id), {
-        product_id: state.product_id,
-        price_cents: state.price_cents === '' ? null : Math.round(Number(state.price_cents) * 100),
-    }, {
+    router.post(route('admin.menus.items.store', picker.value.section.id), payload, {
         preserveScroll: true,
-        onSuccess: () => { newItemState[section.id] = { product_id: '', price_cents: '' }; },
+        onSuccess: () => { picker.value.show = false; },
+        onFinish: () => { picker.value.processing = false; },
     });
 }
 
@@ -103,9 +140,9 @@ function removeItem(item) {
     router.delete(route('admin.menus.items.destroy', item.id), { preserveScroll: true });
 }
 
-function updateItemPrice(item) {
+function updateItemPrice(item, value) {
     router.patch(route('admin.menus.items.update', item.id), {
-        price_cents: item.price_cents === '' || item.price_cents === null ? null : Math.round(Number(item.price_cents) * 100),
+        price_cents: value === '' || value === null ? null : Math.round(Number(value) * 100),
     }, { preserveScroll: true, preserveState: true });
 }
 
@@ -114,6 +151,26 @@ function toggleItemFlag(item, field) {
         [field]: !item[field],
     }, { preserveScroll: true, preserveState: true });
 }
+
+function reorderItems(section, list) {
+    router.patch(route('admin.menus.items.reorder', section.id), {
+        ids: list.map((i) => i.id),
+    }, { preserveScroll: true, preserveState: true });
+}
+
+// Injected rather than emitted so a section nested five levels deep talks
+// to this page directly instead of through five re-emits.
+provide('builderActions', {
+    openPicker,
+    addSubsection: (section) => openSectionForm(section),
+    removeSection,
+    toggleSectionActive,
+    reorderSections,
+    removeItem,
+    updateItemPrice,
+    toggleItemFlag,
+    reorderItems,
+});
 </script>
 
 <template>
@@ -130,8 +187,13 @@ function toggleItemFlag(item, field) {
             </div>
         </template>
 
-        <div class="mb-4 flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-            <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('admin.menus.builder_hint') }}</p>
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <div class="min-w-0">
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('admin.menus.builder_hint') }}</p>
+                <p class="mt-1 text-xs text-gray-400">
+                    {{ $t('admin.menus.builder_totals', { sections: totals.sections, items: totals.items }) }}
+                </p>
+            </div>
             <Link :href="route('admin.menus.edit', menu.id)" class="shrink-0 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white">
                 {{ $t('admin.menus.edit_details') }}
             </Link>
@@ -141,134 +203,76 @@ function toggleItemFlag(item, field) {
             v-model="sectionsList"
             item-key="id"
             handle=".section-drag-handle"
-            class="space-y-4"
-            @end="onSectionsReorder"
+            class="space-y-3"
+            @end="reorderSections(null, sectionsList)"
         >
             <template #item="{ element: section }">
-                <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-                    <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-900/60">
-                        <div class="flex items-center gap-2">
-                            <span class="section-drag-handle cursor-move text-gray-300 hover:text-gray-500">⠿</span>
-                            <span class="font-medium text-gray-900 dark:text-gray-100">{{ section.name }}</span>
-                            <Link :href="route('admin.categories.edit', section.id)" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-                                {{ $t('common.edit') }}
-                            </Link>
-                        </div>
-                        <button type="button" class="text-xs text-red-500 hover:text-red-700" @click="removeSection(section)">
-                            {{ $t('admin.menus.remove_section') }}
-                        </button>
-                    </div>
-
-                    <draggable
-                        v-model="section.items"
-                        item-key="id"
-                        handle=".item-drag-handle"
-                        class="divide-y divide-gray-100 dark:divide-gray-800"
-                        @end="onItemsReorder(section)"
-                    >
-                        <template #item="{ element: item }">
-                            <div class="flex items-center gap-3 px-4 py-2.5">
-                                <span class="item-drag-handle cursor-move text-gray-300 hover:text-gray-500">⠿</span>
-                                <div class="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-gray-100 dark:bg-gray-800">
-                                    <img v-if="item.image_url" :src="item.image_url" class="h-full w-full object-cover" />
-                                    <img
-                                        v-else-if="page.props.branding.logo_url"
-                                        :src="page.props.branding.logo_url"
-                                        class="h-full w-full object-contain p-1 opacity-70"
-                                    />
-                                </div>
-                                <span class="min-w-0 flex-1 truncate text-sm text-gray-800 dark:text-gray-200">{{ item.name }}</span>
-
-                                <input
-                                    :value="item.price_cents === null ? '' : (item.price_cents / 100).toFixed(2)"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    :placeholder="(item.base_price_cents / 100).toFixed(2)"
-                                    class="focus-brand w-24 rounded-md border-gray-300 py-1 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                                    @change="(e) => { item.price_cents = e.target.value; updateItemPrice(item); }"
-                                />
-
-                                <button
-                                    type="button"
-                                    class="rounded-full px-2 py-0.5 text-xs font-medium"
-                                    :class="item.is_active
-                                        ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400'
-                                        : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'"
-                                    @click="toggleItemFlag(item, 'is_active')"
-                                >
-                                    {{ item.is_active ? $t('common.active') : $t('common.inactive') }}
-                                </button>
-
-                                <button
-                                    type="button"
-                                    class="rounded-full px-2 py-0.5 text-xs font-medium"
-                                    :class="item.is_featured
-                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
-                                        : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'"
-                                    @click="toggleItemFlag(item, 'is_featured')"
-                                >
-                                    <NavIcon name="star" class="me-1 inline h-3 w-3 -mt-0.5" /> {{ $t('admin.menus.featured') }}
-                                </button>
-
-                                <button type="button" class="text-gray-300 hover:text-red-600" @click="removeItem(item)">
-                                    <NavIcon name="close" class="h-4 w-4" />
-                                </button>
-                            </div>
-                        </template>
-                    </draggable>
-
-                    <div v-if="section.items.length === 0" class="px-4 py-3 text-sm text-gray-400">
-                        {{ $t('admin.menus.no_items') }}
-                    </div>
-
-                    <div class="flex items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-2.5 dark:border-gray-800 dark:bg-gray-900/30">
-                        <select
-                            v-model="ensureItemState(section.id).product_id"
-                            class="focus-brand min-w-0 flex-1 rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                        >
-                            <option value="">{{ $t('admin.menus.pick_product') }}</option>
-                            <option v-for="product in availableProducts" :key="product.id" :value="product.id">
-                                {{ `${product.name} — ‎${formatPrice(product.price_cents)}` }}
-                            </option>
-                        </select>
-                        <input
-                            v-model="ensureItemState(section.id).price_cents"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            :placeholder="$t('admin.menus.price_override')"
-                            class="focus-brand w-28 rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                        />
-                        <button
-                            type="button"
-                            class="shrink-0 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
-                            :disabled="!ensureItemState(section.id).product_id"
-                            @click="addItem(section)"
-                        >
-                            {{ $t('common.add') }}
-                        </button>
-                    </div>
-                </div>
+                <MenuSection :section="section" :depth="0" />
             </template>
         </draggable>
 
-        <div class="mt-4 flex items-center gap-2 rounded-lg border border-dashed border-gray-300 p-4 dark:border-gray-700">
-            <input
-                v-model="newSectionName"
-                type="text"
-                :placeholder="$t('admin.menus.new_section_placeholder')"
-                class="focus-brand min-w-0 flex-1 rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                @keyup.enter="addSection"
-            />
+        <div v-if="sectionsList.length === 0" class="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-400 dark:border-gray-700">
+            {{ $t('admin.menus.no_sections') }}
+        </div>
+
+        <div class="mt-4">
             <button
                 type="button"
-                class="shrink-0 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
-                :disabled="addingSection || !newSectionName.trim()"
-                @click="addSection"
+                class="inline-flex items-center gap-1.5 rounded-md border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:border-gray-400 hover:text-gray-900 dark:border-gray-700 dark:text-gray-300 dark:hover:text-white"
+                @click="openSectionForm(null)"
             >
+                <NavIcon name="plus" class="h-4 w-4" />
                 {{ $t('admin.menus.add_section') }}
             </button>
         </div>
+
+        <ProductPicker
+            :show="picker.show"
+            :section="picker.section"
+            :products="availableProducts"
+            :tags="tags"
+            :processing="picker.processing"
+            @close="picker.show = false"
+            @add="addProducts"
+        />
+
+        <Modal :show="sectionForm.show" max-width="md" @close="sectionForm.show = false">
+            <div class="p-5">
+                <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    {{ sectionForm.parent
+                        ? $t('admin.menus.add_subsection_to', { section: sectionForm.parent.name })
+                        : $t('admin.menus.add_section') }}
+                </h2>
+                <p v-if="defaultLocale" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ $t('admin.menus.section_name_locale_hint', { language: defaultLocale.native_name }) }}
+                </p>
+
+                <input
+                    v-model="sectionForm.name"
+                    type="text"
+                    :placeholder="$t('admin.menus.new_section_placeholder')"
+                    class="focus-brand mt-3 w-full rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                    @keyup.enter="submitSectionForm"
+                />
+
+                <div class="mt-4 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="rounded-md px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                        @click="sectionForm.show = false"
+                    >
+                        {{ $t('common.cancel') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded-md bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
+                        :disabled="sectionForm.processing || !sectionForm.name.trim()"
+                        @click="submitSectionForm"
+                    >
+                        {{ $t('common.add') }}
+                    </button>
+                </div>
+            </div>
+        </Modal>
     </AuthenticatedLayout>
 </template>

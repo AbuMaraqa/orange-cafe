@@ -8,6 +8,7 @@ import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { slugify } from '@/slug';
 
 const props = defineProps({
     languages: {
@@ -48,7 +49,7 @@ const form = useForm({
     image: null,
     price_cents: props.product?.price_cents ?? 0,
     prep_time_minutes: props.product?.prep_time_minutes ?? '',
-    category_ids: [],
+    category_ids: props.product?.category_ids ?? [],
     is_active: props.product?.is_active ?? true,
     sort_order: props.product?.sort_order ?? 0,
     modifier_group_ids: props.product?.modifier_group_ids ?? [],
@@ -56,16 +57,23 @@ const form = useForm({
     translations: props.product?.translations ?? emptyTranslations,
 });
 
-// The form field itself stays in cents (what the backend expects) — this
-// just converts what the admin types/sees to and from whole currency
-// units, the same way Menu Builder's price override field does.
-const priceDisplay = computed({
-    get: () => (form.price_cents / 100).toFixed(2),
-    set: (value) => {
-        const cents = Math.round(Number(value) * 100);
-        form.price_cents = Number.isFinite(cents) ? cents : 0;
-    },
+// The form holds cents (what the backend expects) but an admin types
+// currency units, so the two are kept apart.
+//
+// They used to be one computed with `.toFixed(2)` in its getter, which
+// rewrote the box on every keystroke: typing "12.50" went 1 → "1.00",
+// then "1.002" → "1.00", and the price could not be typed at all. The
+// text now stays exactly as typed and is only tidied up on the way out.
+const priceInput = ref(props.product ? (props.product.price_cents / 100).toFixed(2) : '');
+
+watch(priceInput, (value) => {
+    const cents = Math.round(Number(value) * 100);
+    form.price_cents = value !== '' && Number.isFinite(cents) && cents >= 0 ? cents : 0;
 });
+
+function normalisePrice() {
+    priceInput.value = (form.price_cents / 100).toFixed(2);
+}
 
 const imagePreview = ref(props.product?.image_url ?? null);
 
@@ -79,6 +87,12 @@ const overrides = reactive(
             const existing = props.product?.modifier_overrides?.[modifier.id];
             return [modifier.id, {
                 price_cents: existing?.price_cents ?? null,
+                // The text as typed. Held separately for the same reason
+                // priceInput above is: deriving the box's value from
+                // price_cents rewrote it on every keystroke, so "2.50"
+                // turned into "2.00" and then "2.01" as the caret was
+                // thrown to the end mid-number. Empty means "inherit".
+                price_input: existing?.price_cents == null ? '' : (existing.price_cents / 100).toFixed(2),
                 is_active: existing?.is_active ?? null,
             }];
         })),
@@ -86,12 +100,23 @@ const overrides = reactive(
 );
 
 function setOverridePrice(modifierId, value) {
+    overrides[modifierId].price_input = value ?? '';
+
     if (value === '' || value === null || value === undefined) {
         overrides[modifierId].price_cents = null;
         return;
     }
+
     const cents = Math.round(Number(value) * 100);
-    overrides[modifierId].price_cents = Number.isFinite(cents) ? cents : null;
+    overrides[modifierId].price_cents = Number.isFinite(cents) && cents >= 0 ? cents : null;
+}
+
+// Tidying happens on the way out of the field, never while typing. A blank
+// box stays blank: that is "inherit the group's price", not zero.
+function normaliseOverridePrice(modifierId) {
+    const override = overrides[modifierId];
+
+    override.price_input = override.price_cents === null ? '' : (override.price_cents / 100).toFixed(2);
 }
 
 function toggleOverrideAvailable(modifierId, checked) {
@@ -104,6 +129,7 @@ form.transform((data) => ({
     ...data,
     modifier_overrides: Object.entries(overrides)
         .filter(([, o]) => o.price_cents !== null || o.is_active !== null)
+        // price_input is display state only; the request wants cents.
         .map(([modifierId, o]) => ({
             modifier_id: Number(modifierId),
             price_cents: o.price_cents,
@@ -111,19 +137,26 @@ form.transform((data) => ({
         })),
 }));
 
-// Categories the product is already placed in — shown read-only here since
-// removing a placement can drop per-category customization (price
-// override, sort order, featured flag) that only Menu Builder shows.
-// Checking a box below only ever adds a new placement, so the checklist
-// itself excludes categories the product is already in.
-const assignedCategories = computed(() => {
-    const ids = new Set(props.product?.category_ids ?? []);
-    return props.categories.filter((category) => ids.has(category.id));
-});
-const availableCategories = computed(() => {
-    const ids = new Set(props.product?.category_ids ?? []);
-    return props.categories.filter((category) => !ids.has(category.id));
-});
+// Where the product sits in the menu. This was add-only — the categories
+// it was already in showed as flat chips and the checklist below excluded
+// them, so a product filed under the wrong section could never be moved,
+// only duplicated into a second one. It is one editable set now.
+//
+// Unchecking a category the product is currently in does drop that
+// placement's own settings (its order within the section, its featured
+// flag, any per-section price), which is why the form says so rather than
+// doing it quietly.
+const originalCategoryIds = new Set(props.product?.category_ids ?? []);
+
+function toggleCategory(categoryId, checked) {
+    form.category_ids = checked
+        ? [...form.category_ids, categoryId]
+        : form.category_ids.filter((id) => id !== categoryId);
+}
+
+const removedCategories = computed(() =>
+    props.categories.filter((c) => originalCategoryIds.has(c.id) && !form.category_ids.includes(c.id))
+);
 const defaultLocaleCode = props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code;
 const activeTab = ref(defaultLocaleCode);
 
@@ -131,11 +164,17 @@ const activeTab = ref(defaultLocaleCode);
 // think about up front — stops the moment the admin edits the slug
 // themselves (an existing product's slug is also left alone, since it
 // may already be linked elsewhere).
+//
+// An Arabic name leaves the box empty rather than filling it with
+// Arabic: slugify() only speaks ASCII on purpose, and the server
+// transliterates the name into a real slug on save (GeneratesSlug).
+// The placeholder on the field says so, so an empty box does not read
+// as something forgotten.
 const slugEditedManually = ref(isEdit.value);
 
 watch(() => form.translations[defaultLocaleCode]?.name, (name) => {
-    if (!slugEditedManually.value && name) {
-        form.slug = name.trim().replace(/\s+/g, '-');
+    if (!slugEditedManually.value) {
+        form.slug = slugify(name);
     }
 });
 
@@ -241,13 +280,30 @@ function submit() {
 
                 <div>
                     <InputLabel for="slug" :value="$t('admin.products.slug')" />
-                    <TextInput id="slug" v-model="form.slug" class="mt-1 block w-full" dir="ltr" required @input="onSlugInput" />
+                    <TextInput
+                        id="slug"
+                        v-model="form.slug"
+                        class="mt-1 block w-full"
+                        dir="ltr"
+                        :placeholder="$t('admin.products.slug_auto')"
+                        @input="onSlugInput"
+                    />
                     <InputError class="mt-2" :message="form.errors.slug" />
                 </div>
 
                 <div>
                     <InputLabel for="price_cents" :value="$t('common.price')" />
-                    <TextInput id="price_cents" v-model="priceDisplay" type="number" min="0" step="0.01" class="mt-1 block w-full" />
+                    <TextInput
+                        id="price_cents"
+                        v-model="priceInput"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        inputmode="decimal"
+                        dir="ltr"
+                        class="no-spinner mt-1 block w-full"
+                        @blur="normalisePrice"
+                    />
                     <InputError class="mt-2" :message="form.errors.price_cents" />
                 </div>
 
@@ -266,38 +322,41 @@ function submit() {
                     <InputError class="mt-2" :message="form.errors.prep_time_minutes" />
                 </div>
 
-                <div v-if="assignedCategories.length > 0 || availableCategories.length > 0">
+                <!-- Where this product appears on the menu. Indentation is
+                     the nesting: a sub-category sits under its parent, at
+                     any depth, so picking the right "Grill" is a matter of
+                     looking rather than guessing. -->
+                <div v-if="categories.length > 0">
                     <InputLabel :value="$t('admin.products.category')" />
 
-                    <div v-if="assignedCategories.length > 0" class="mt-1 flex flex-wrap gap-1.5">
-                        <span
-                            v-for="category in assignedCategories"
-                            :key="category.id"
-                            class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-                        >
-                            {{ category.name }}
-                        </span>
-                    </div>
-
-                    <div v-if="availableCategories.length > 0" class="mt-2 flex flex-wrap gap-2">
+                    <div class="mt-1.5 max-h-64 overflow-y-auto rounded-md border border-gray-200 p-1.5 dark:border-gray-700">
                         <label
-                            v-for="category in availableCategories"
+                            v-for="category in categories"
                             :key="category.id"
-                            class="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm dark:border-gray-700"
+                            class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                            :style="{ paddingInlineStart: `${0.5 + category.depth * 1.25}rem` }"
                         >
-                            <Checkbox :checked="form.category_ids.includes(category.id)" @update:checked="(checked) => {
-                                form.category_ids = checked
-                                    ? [...form.category_ids, category.id]
-                                    : form.category_ids.filter((id) => id !== category.id);
-                            }" />
-                            {{ category.name }}
+                            <Checkbox
+                                :checked="form.category_ids.includes(category.id)"
+                                @update:checked="(checked) => toggleCategory(category.id, checked)"
+                            />
+                            <span :class="category.depth > 0 ? 'text-gray-600 dark:text-gray-400' : 'font-medium text-gray-900 dark:text-gray-100'">
+                                <span v-if="category.depth > 0" class="text-gray-300">└</span>
+                                {{ category.name }}
+                            </span>
                         </label>
                     </div>
+
+                    <p
+                        v-if="removedCategories.length > 0"
+                        class="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-300"
+                    >
+                        {{ $t('admin.products.category_removal_warning', { names: removedCategories.map((c) => c.name).join('، ') }) }}
+                    </p>
 
                     <p class="mt-1 text-xs text-gray-500">{{ $t('admin.products.category_hint') }}</p>
                     <InputError class="mt-2" :message="form.errors.category_ids" />
                 </div>
-
                 <div>
                     <InputLabel for="station" :value="$t('admin.categories.station')" />
                     <select
@@ -373,13 +432,16 @@ function submit() {
                                             :title="$t('admin.products.base_price')"
                                         >{{ (modifier.price_cents / 100).toFixed(2) }}</span>
                                         <TextInput
-                                            :model-value="overrides[modifier.id].price_cents === null ? '' : (overrides[modifier.id].price_cents / 100).toFixed(2)"
+                                            :model-value="overrides[modifier.id].price_input"
                                             type="number"
                                             min="0"
                                             step="0.01"
-                                            class="w-28 shrink-0 text-sm"
+                                            inputmode="decimal"
+                                            dir="ltr"
+                                            class="no-spinner w-28 shrink-0 text-sm"
                                             :placeholder="$t('admin.products.custom_price_placeholder')"
                                             @update:model-value="(value) => setOverridePrice(modifier.id, value)"
+                                            @blur="normaliseOverridePrice(modifier.id)"
                                         />
                                         <label class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500">
                                             <Checkbox

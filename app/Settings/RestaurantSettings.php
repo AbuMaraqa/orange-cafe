@@ -47,6 +47,21 @@ class RestaurantSettings extends Settings
 
     public ?string $receipt_footer_text;
 
+    /**
+     * The clock reading a trading day starts at, "HH:MM".
+     *
+     * A café that serves until three in the morning has one night that two
+     * calendar dates disagree about: the drawer is counted once, at 3am, but
+     * three hours of what it holds were taken after midnight and are filed
+     * under a day that has barely begun. Set this to "06:00" and everything
+     * before six belongs to the day before — the day the staff worked, and
+     * the one the drawer was counted for.
+     *
+     * "00:00" is the calendar day, which is what every figure meant before
+     * this setting existed. See App\Services\Accounting\BusinessDay.
+     */
+    public string $business_day_starts_at;
+
     public static function group(): string
     {
         return 'restaurant';

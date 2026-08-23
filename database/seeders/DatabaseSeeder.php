@@ -14,6 +14,8 @@ class DatabaseSeeder extends Seeder
         $this->call([
             LanguageSeeder::class,
             RoleSeeder::class,
+            PermissionSeeder::class,
+            AccountingCategorySeeder::class,
             UserSeeder::class,
             RestaurantSettingsSeeder::class,
             CatalogSeeder::class,

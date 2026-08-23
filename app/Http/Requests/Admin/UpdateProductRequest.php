@@ -2,12 +2,25 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Http\Requests\Admin\Concerns\GeneratesSlug;
 use App\Services\LanguageRegistry;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateProductRequest extends FormRequest
 {
+    use GeneratesSlug;
+
+    /**
+     * An existing product keeps whatever slug it already has (the form
+     * sends it back untouched), so in practice this only normalises a slug
+     * the admin retyped — and regenerates one they cleared out.
+     */
+    protected function prepareForValidation(): void
+    {
+        $this->fillSlug('products', $this->route('product')?->id);
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -26,7 +39,7 @@ class UpdateProductRequest extends FormRequest
             'category_ids.*' => ['integer', 'exists:categories,id'],
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', Rule::unique('products', 'slug')->ignore($this->route('product'))],
             'station' => ['nullable', 'string', 'max:100', 'exists:printers,station'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            'image' => ['nullable', 'image', 'max:15360'],
             'price_cents' => ['required', 'integer', 'min:0'],
             'prep_time_minutes' => ['nullable', 'integer', 'min:0', 'max:600'],
             'is_active' => ['sometimes', 'boolean'],

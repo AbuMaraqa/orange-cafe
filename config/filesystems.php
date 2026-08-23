@@ -39,7 +39,20 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
+            // Root-relative on purpose, NOT env('APP_URL').'/storage'.
+            //
+            // An absolute URL freezes one host into every image link. With
+            // APP_URL=http://localhost:8000 the pictures loaded perfectly on
+            // the machine running the app and were broken on every other
+            // device in the building: "localhost" on a waiter's tablet is
+            // the tablet. Any fixed IP fails the same way one DHCP lease
+            // later.
+            //
+            // "/storage/burger.jpg" is resolved by the browser against
+            // whatever host it loaded the page from, which is the one
+            // address known to work for that device. Served by
+            // StorageFileController (see routes/web.php).
+            'url' => '/storage',
             'visibility' => 'public',
             'throw' => false,
         ],

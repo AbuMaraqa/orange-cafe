@@ -1,9 +1,11 @@
 <script setup>
 import { computed, ref } from 'vue';
 import Dropdown from '@/Components/Dropdown.vue';
+import FlashToast from '@/Components/FlashToast.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
 import LanguageSwitcher from '@/Components/LanguageSwitcher.vue';
 import NavIcon from '@/Components/NavIcon.vue';
+import PendingOrdersDock from '@/Components/Staff/PendingOrdersDock.vue';
 import ThemeToggle from '@/Components/ThemeToggle.vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
@@ -13,6 +15,13 @@ const { t } = useI18n();
 const roles = computed(() => page.props.auth.roles ?? []);
 const isAdmin = computed(() => roles.value.includes('admin'));
 const hasRole = (role) => roles.value.includes(role) || isAdmin.value;
+
+// The money screens are gated per permission rather than per role, because
+// a cashier belongs on some of them and not others. Hiding an entry someone
+// would only be turned away from keeps the sidebar honest; the routes do
+// the actual guarding.
+const permissions = computed(() => page.props.auth?.permissions ?? []);
+const can = (permission) => permissions.value.includes(permission);
 
 const sidebarOpen = ref(false);
 const collapsed = ref(typeof localStorage !== 'undefined' && localStorage.getItem('sidebar-collapsed') === '1');
@@ -41,6 +50,16 @@ const navGroups = computed(() => [
         ],
     },
     {
+        title: t('nav.accounting_group'),
+        items: [
+            { label: t('nav.cashbox'), icon: 'cash', route: 'admin.accounting.cashbox', visible: can('cashbox.view') },
+            { label: t('nav.expenses'), icon: 'clipboardList', route: 'admin.accounting.expenses.index', visible: can('expenses.view') },
+            { label: t('nav.absences'), icon: 'users', route: 'admin.accounting.absences.index', visible: can('absences.view') },
+            { label: t('nav.staff_accounts'), icon: 'users', route: 'admin.accounting.staff.index', visible: can('staff_accounts.view') },
+            { label: t('nav.acct_reports'), icon: 'book', route: 'admin.accounting.reports', visible: can('reports.view') },
+        ],
+    },
+    {
         title: t('nav.group_catalog'),
         items: [
             { label: t('nav.menus'), icon: 'book', route: 'admin.menus.index', visible: isAdmin.value },
@@ -49,6 +68,7 @@ const navGroups = computed(() => [
             { label: t('nav.modifier_groups'), icon: 'sliders', route: 'admin.modifier-groups.index', visible: isAdmin.value },
             { label: t('nav.tags'), icon: 'tag', route: 'admin.tags.index', visible: isAdmin.value },
             { label: t('nav.services'), icon: 'bell', route: 'admin.services.index', visible: isAdmin.value },
+            { label: t('nav.service_charges'), icon: 'clock', route: 'admin.service-charges.index', visible: isAdmin.value },
         ],
     },
     {
@@ -62,8 +82,36 @@ const navGroups = computed(() => [
     },
 ].map((group) => ({ ...group, items: group.items.filter((item) => item.visible) })).filter((group) => group.items.length > 0));
 
+/**
+ * The one nav item the current page belongs to.
+ *
+ * This used to drop the last segment of the item's route name and match
+ * `<the rest>.*`, meaning to keep a list item lit while one of its records
+ * is being created or edited. For a name with a single segment past its
+ * group — `admin.accounting.cashbox`, `admin.accounting.reports`,
+ * `admin.accounting.index` — that pattern collapses to
+ * `admin.accounting.*`, which matches every accounting page there is. So
+ * opening المصروفات lit المحاسبة, الصندوق, المصروفات and التقارير all at
+ * once, and the sidebar stopped answering the one question it exists to
+ * answer: where am I?
+ *
+ * The broadening is kept, but only where it was meant to apply: a list
+ * page's own create/edit/show screens. Everything else is an exact match.
+ */
+const RESOURCE_ACTIONS = ['create', 'edit', 'show'];
+
 function isActive(routeName) {
-    return route().current(routeName) || route().current(`${routeName.split('.').slice(0, -1).join('.')}.*`);
+    if (route().current(routeName)) {
+        return true;
+    }
+
+    if (!routeName.endsWith('.index')) {
+        return false;
+    }
+
+    const base = routeName.slice(0, -'.index'.length);
+
+    return RESOURCE_ACTIONS.some((action) => route().current(`${base}.${action}`));
 }
 </script>
 
@@ -149,8 +197,19 @@ function isActive(routeName) {
             </nav>
         </aside>
 
-        <!-- Main column -->
-        <div class="flex min-h-screen flex-1 flex-col">
+        <!-- Main column.
+             min-w-0 is load-bearing, not tidying. A flex item defaults to
+             `min-width: auto`, which means it refuses to shrink below the
+             intrinsic minimum width of its own content — so a wide table, a
+             long unbreakable string or a grid with one column too many does
+             not scroll inside this column, it pushes the column itself past
+             the edge of the screen. The whole page then scrolls sideways and
+             the content nearest the start edge is cut off, which in Arabic
+             is the side every card's text begins on.
+             With min-w-0 the column is free to shrink to the viewport and
+             the overflow is handled where it belongs, inside the element
+             that is actually too wide. -->
+        <div class="flex min-h-screen min-w-0 flex-1 flex-col">
             <!-- Topbar -->
             <header class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6 dark:border-gray-800 dark:bg-gray-950">
                 <div class="flex items-center gap-3">
@@ -191,7 +250,21 @@ function isActive(routeName) {
                 </div>
             </header>
 
-            <main class="flex-1 p-4 sm:p-6">
+            <FlashToast />
+
+            <!-- Every staff screen, not just the ones about orders: the
+                 whole point is being visible while somebody is busy with
+                 something else. It renders nothing when there is nothing
+                 outstanding, and nothing at all for a user with no staff
+                 role. -->
+            <PendingOrdersDock />
+
+
+            <!-- The belt to min-w-0's braces. Anything that still turns out
+                 wider than the column — a wide table, a long code block —
+                 scrolls inside this element instead of dragging the whole
+                 page sideways with it. -->
+            <main class="min-w-0 flex-1 overflow-x-auto p-4 sm:p-6">
                 <slot />
             </main>
         </div>

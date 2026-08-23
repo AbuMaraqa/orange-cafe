@@ -1,6 +1,9 @@
 <?php
 
 return [
+
+    // Printed beside each dish on the kitchen ticket.
+    'minutes' => 'min',
     'invoice' => 'Invoice',
     'date' => 'Date',
     'table' => 'Table',
@@ -16,6 +19,7 @@ return [
     'unpaid' => 'Unpaid',
     'amount_paid' => 'Amount Paid',
     'change_due' => 'Change Due',
+    'order_discount' => 'Discount',
     'discount' => 'Discount',
     'thank_you' => 'Thank you for your visit!',
     'scan_instruction' => 'Scan to view the menu and order',
@@ -23,4 +27,7 @@ return [
     'wifi_heading' => 'Free Wi-Fi',
     'wifi_network' => 'Network',
     'wifi_instruction' => 'Scan to join our Wi-Fi',
+    'note' => 'Note',
+    'added_round' => 'Added to an earlier order',
+    'order_note' => 'Order note',
 ];

@@ -40,6 +40,32 @@ return [
                 'port' => env('REVERB_PORT', 443),
                 'scheme' => env('REVERB_SCHEME', 'https'),
                 'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+
+                // Reverb runs on this same machine, so a healthy publish
+                // completes in single-digit milliseconds. Left unset, the
+                // Pusher client waits its default ~2s just to connect and up
+                // to 30s overall — and every one of this app's events is
+                // ShouldBroadcastNow, meaning it publishes *inside* the web
+                // request. So a Reverb that is down or still starting turned
+                // each "add item" tap into a two-second stall for the waiter,
+                // for a notification that is only ever a nice-to-have
+                // (BroadcastsSafely already swallows the failure).
+                //
+                // Three seconds, with the connect timeout below doing the
+                // work the old single second was doing.
+                //
+                // One second was too tight, and the failure was specific: a
+                // warm publish measures ~560ms on this machine, so the
+                // margin was under 2x, and the first broadcast after the app
+                // starts — while Reverb is still coming up — went over it.
+                // The log has it at 10:30:52, thirty-five seconds after a
+                // launch. A table ordering in that window was never
+                // announced to anyone.
+                //
+                // Raising this alone would have reinstated the stall the
+                // single second existed to prevent, so it is split: see
+                // connect_timeout in client_options.
+                'timeout' => 3,
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
@@ -47,6 +73,16 @@ return [
                 // point Guzzle at the local self-signed CA instead of disabling
                 // verification outright.
                 'verify' => env('REVERB_TLS_CA', true),
+
+                // The ceiling on what a *dead* Reverb costs the person
+                // holding the tablet, which is the thing worth bounding
+                // tightly. Reverb is on this machine: if it is not running,
+                // the connection is refused in microseconds and this never
+                // comes near its limit. `timeout` above then only applies
+                // once something has answered — a Reverb that is alive but
+                // still warming up gets its three seconds, while a Reverb
+                // that is gone still fails instantly.
+                'connect_timeout' => 1,
             ],
         ],
 

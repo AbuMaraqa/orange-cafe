@@ -25,9 +25,7 @@ class OpenCashDrawer implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public Printer $printer)
-    {
-    }
+    public function __construct(public Printer $printer) {}
 
     public function retryUntil(): DateTime
     {

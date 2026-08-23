@@ -103,6 +103,19 @@
     {{-- mPDF auto-mirrors physical left/right margins when the document
          direction is RTL, so a plain margin-left works for both directions. --}}
     <table class="totals" style="margin-left: auto;">
+        {{-- A discount only earns its two lines when there is one. Showing
+             the pre-discount figure is the point: the customer sees what
+             they were given, and the lines above still add up to it. --}}
+        @if (($order->discount_cents ?? 0) > 0)
+            <tr>
+                <td class="label">{{ $labels['subtotal'] }}</td>
+                <td class="text-end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format(($order->total_cents + $order->discount_cents) / 100, 2) }}</td>
+            </tr>
+            <tr>
+                <td class="label">{{ $labels['order_discount'] }}@if ($order->discount_reason) <span style="font-size: 10px; color: #6b7280;">({{ $order->discount_reason }})</span>@endif</td>
+                <td class="text-end">−<span class="currency">{{ $currencySymbol }}</span>{{ number_format($order->discount_cents / 100, 2) }}</td>
+            </tr>
+        @endif
         <tr>
             <td class="label">{{ $labels['total'] }}</td>
             <td class="text-end grand"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($order->total_cents / 100, 2) }}</td>

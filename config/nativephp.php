@@ -129,6 +129,15 @@ return [
         // Nothing in the shipped app runs the test suite, and PHPUnit isn't
         // installed in the --no-dev vendor tree it would need.
         'tests',
+
+        // The development machine's own logs, which have no business on a
+        // customer's computer: they carry this machine's paths, its order
+        // references, its printer names and its stack traces. They are also
+        // the wrong file — the packaged app writes to the relocated storage
+        // under %APPDATA%, so what ships here is never even read, it just
+        // sits there. NativePHP's stock list covers storage/framework but
+        // not storage/logs.
+        'storage/logs',
     ],
 
     /**
@@ -212,7 +221,18 @@ return [
         'queues' => ['default'],
         'memory_limit' => 256,
         'timeout' => 120,
-        'sleep' => 1,
+
+        // How long the worker waits before looking again when it found
+        // nothing. It is therefore the *fixed* delay between pressing print
+        // and anything happening at all — pure dead time on the one action
+        // where the cashier is standing in front of a customer waiting.
+        //
+        // NativePHP defaults to 3s; this was 1s, and is now 0.25s. Laravel
+        // accepts a fraction here and passes it to usleep, so a quarter of a
+        // second is a real quarter of a second. The cost is four wake-ups a
+        // second against a local SQLite file with an index on the queue —
+        // immeasurable next to the render it precedes.
+        'sleep' => 0.25,
     ],
 
     /**

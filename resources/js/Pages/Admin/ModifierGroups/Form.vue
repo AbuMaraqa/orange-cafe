@@ -8,6 +8,7 @@ import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import draggable from 'vuedraggable';
 
 const props = defineProps({
     languages: {
@@ -26,18 +27,48 @@ function emptyTranslations() {
     return Object.fromEntries(props.languages.map((l) => [l.code, { name: '' }]));
 }
 
+// Every row carries the cents the backend wants *and* the raw text the
+// admin is typing, kept apart for the same reason the product form keeps
+// them apart (Products/Form.vue): a box whose value is re-derived as
+// `(price_cents / 100).toFixed(2)` on every keystroke rewrites itself
+// mid-entry — "5" became "5.00" with the caret pushed to the end, so
+// typing "5.50" produced "5.00.5", which is not a valid number input, and
+// `Math.round(Number(value) * 100) || 0` then silently zeroed the price.
+// A size that costs 5.50 could not be entered at all.
 function newModifier() {
-    return { id: null, price_cents: 0, is_active: true, translations: emptyTranslations() };
+    return { id: null, price_cents: 0, price_input: '0.00', is_active: true, translations: emptyTranslations() };
+}
+
+function withPriceInput(modifiers) {
+    return modifiers.map((modifier) => ({
+        ...modifier,
+        price_input: (modifier.price_cents / 100).toFixed(2),
+    }));
+}
+
+// The text is stored exactly as typed and only tidied on blur, so a
+// half-finished "5." survives long enough to become "5.50".
+function setModifierPrice(modifier, value) {
+    modifier.price_input = value;
+
+    const cents = Math.round(Number(value) * 100);
+
+    modifier.price_cents = value !== '' && Number.isFinite(cents) && cents >= 0 ? cents : 0;
+}
+
+function normaliseModifierPrice(modifier) {
+    modifier.price_input = (modifier.price_cents / 100).toFixed(2);
 }
 
 const form = useForm({
     is_required: props.group?.is_required ?? false,
+    is_variation: props.group?.is_variation ?? false,
     min_select: props.group?.min_select ?? 0,
     max_select: props.group?.max_select ?? null,
     is_active: props.group?.is_active ?? true,
     sort_order: props.group?.sort_order ?? 0,
     translations: props.group?.translations ?? emptyTranslations(),
-    modifiers: props.group?.modifiers?.length ? props.group.modifiers : [newModifier()],
+    modifiers: props.group?.modifiers?.length ? withPriceInput(props.group.modifiers) : [newModifier()],
 });
 
 const activeTab = ref(props.languages.find((l) => l.is_default)?.code ?? props.languages[0]?.code);
@@ -51,6 +82,18 @@ function removeModifier(index) {
 }
 
 function submit() {
+    // price_input is display state; the request only ever wants the cents.
+    // (validated() would drop it anyway, but sending it invites confusion.)
+    form.transform((data) => ({
+        ...data,
+        modifiers: data.modifiers.map((modifier) => {
+            const payload = { ...modifier };
+            delete payload.price_input;
+
+            return payload;
+        }),
+    }));
+
     if (isEdit.value) {
         form.put(route('admin.modifier-groups.update', props.group.id));
     } else {
@@ -107,16 +150,27 @@ function submit() {
                     </div>
                 </div>
 
-                <div class="flex gap-6">
+                <div class="flex flex-wrap gap-6">
                     <label class="flex items-center">
                         <Checkbox v-model:checked="form.is_required" />
                         <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('admin.modifier_groups.required') }}</span>
+                    </label>
+                    <label class="flex items-center">
+                        <Checkbox v-model:checked="form.is_variation" />
+                        <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('admin.modifier_groups.is_variation') }}</span>
                     </label>
                     <label class="flex items-center">
                         <Checkbox v-model:checked="form.is_active" />
                         <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ $t('common.active') }}</span>
                     </label>
                 </div>
+
+                <!-- Ticking this changes what the numbers below mean, so it
+                     says so rather than leaving the admin to discover it on
+                     the customer's screen. -->
+                <p v-if="form.is_variation" class="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    {{ $t('admin.modifier_groups.is_variation_hint') }}
+                </p>
 
                 <div>
                     <div class="flex items-center justify-between">
@@ -127,17 +181,37 @@ function submit() {
                     </div>
 
                     <div v-if="form.modifiers.length > 0" class="mt-3 flex items-center gap-3 px-3 text-xs font-medium uppercase tracking-wider text-gray-400">
+                        <span class="w-5"></span>
                         <span class="flex-1">{{ $t('common.name') }}</span>
                         <span class="w-28">{{ $t('common.price') }}</span>
                         <span class="w-9 text-center">{{ $t('common.active') }}</span>
                         <span class="w-4"></span>
                     </div>
-                    <div class="mt-1.5 space-y-3">
+                    <!-- Order here is the order the customer sees, and it is
+                         positional: "صغير / وسط / كبير" has to read in that
+                         sequence, so adding a size later means putting it
+                         between two existing ones rather than at the end.
+                         Saved from the array order (the controller writes
+                         sort_order from the index), so a drop is the whole
+                         change. -->
+                    <draggable
+                        v-model="form.modifiers"
+                        item-key="index"
+                        handle=".modifier-drag-handle"
+                        class="mt-1.5 space-y-3"
+                    >
+                        <template #item="{ element: modifier, index }">
                         <div
-                            v-for="(modifier, index) in form.modifiers"
-                            :key="index"
-                            class="flex items-start gap-3 rounded-md border border-gray-200 p-3 dark:border-gray-700"
+                            class="flex items-start gap-3 rounded-md border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
                         >
+                            <!-- A handle rather than the whole row: the row is
+                                 mostly text inputs, and a draggable input
+                                 cannot be selected with the mouse. -->
+                            <span
+                                class="modifier-drag-handle w-5 shrink-0 cursor-move select-none pt-2 text-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                title="اسحب لإعادة الترتيب"
+                            >⋮⋮</span>
+
                             <div class="flex-1">
                                 <TextInput
                                     v-model="modifier.translations[activeTab].name"
@@ -149,13 +223,18 @@ function submit() {
                             </div>
                             <div class="w-28">
                                 <TextInput
-                                    :model-value="(modifier.price_cents / 100).toFixed(2)"
+                                    :model-value="modifier.price_input"
                                     type="number"
+                                    min="0"
                                     step="0.01"
-                                    class="block w-full"
+                                    inputmode="decimal"
+                                    dir="ltr"
+                                    class="no-spinner block w-full"
                                     :placeholder="$t('common.price')"
-                                    @update:model-value="(value) => { modifier.price_cents = Math.round(Number(value) * 100) || 0; }"
+                                    @update:model-value="(value) => setModifierPrice(modifier, value)"
+                                    @blur="normaliseModifierPrice(modifier)"
                                 />
+                                <InputError class="mt-1" :message="form.errors[`modifiers.${index}.price_cents`]" />
                             </div>
                             <label class="flex w-9 items-center justify-center pt-2">
                                 <Checkbox v-model:checked="modifier.is_active" />
@@ -169,7 +248,12 @@ function submit() {
                                 ×
                             </button>
                         </div>
-                    </div>
+                        </template>
+                    </draggable>
+
+                    <p v-if="form.modifiers.length > 1" class="mt-2 text-xs text-gray-400">
+                        اسحب ⋮⋮ لإعادة ترتيب الإضافات — هذا هو الترتيب الذي يراه الزبون.
+                    </p>
                     <InputError class="mt-2" :message="form.errors.modifiers" />
                 </div>
 

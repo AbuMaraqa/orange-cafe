@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Admin\Concerns\FillsMissingTranslations;
 use App\Http\Controllers\Controller;
+use App\Services\Images\ImageOptimizer;
 use App\Http\Requests\Admin\StoreServiceRequest;
 use App\Http\Requests\Admin\UpdateServiceRequest;
 use App\Models\Service;
@@ -17,9 +18,7 @@ class ServiceController extends Controller
 {
     use FillsMissingTranslations;
 
-    public function __construct(protected LanguageRegistry $registry)
-    {
-    }
+    public function __construct(protected LanguageRegistry $registry) {}
 
     public function index(): Response
     {
@@ -46,7 +45,7 @@ class ServiceController extends Controller
         unset($data['translations']);
 
         if ($request->hasFile('image')) {
-            $data['image_path'] = $request->file('image')->store('services', 'public');
+            $data['image_path'] = app(ImageOptimizer::class)->store($request->file('image'), 'services');
         }
         unset($data['image']);
 
@@ -75,7 +74,7 @@ class ServiceController extends Controller
             if ($service->image_path) {
                 Storage::disk('public')->delete($service->image_path);
             }
-            $data['image_path'] = $request->file('image')->store('services', 'public');
+            $data['image_path'] = app(ImageOptimizer::class)->store($request->file('image'), 'services');
         }
         unset($data['image']);
 

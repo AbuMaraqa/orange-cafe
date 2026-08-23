@@ -17,8 +17,17 @@ trait PresentsOrders
             'status' => $order->status,
             'status_color' => $order->statusColor(),
             'total_cents' => $order->total_cents,
+            'discount_cents' => $order->discount_cents ?? 0,
+            'discount_reason' => $order->discount_reason,
             'is_paid' => $order->isPaid(),
             'amount_paid_cents' => $order->amount_paid_cents,
+            // A bill part-paid needs all three: what came in, what is still
+            // owed, and that it is in that state at all. Without them the
+            // till shows an unpaid bill for its full amount and takes the
+            // whole thing again.
+            'paid_so_far_cents' => $order->paidSoFarCents(),
+            'outstanding_cents' => $order->outstandingCents(),
+            'is_partially_paid' => $order->isPartiallyPaid(),
             'notes' => $order->notes,
             'created_at' => $order->created_at->toIso8601String(),
             'items' => $order->items->map(fn ($item) => [

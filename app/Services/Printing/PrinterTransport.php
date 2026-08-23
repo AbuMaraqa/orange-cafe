@@ -16,20 +16,55 @@ use Throwable;
  */
 class PrinterTransport
 {
-    public function __construct(private UsbPrinterTransport $usb)
+    public function __construct(
+        private UsbPrinterTransport $usb,
+        private WindowsPrinterTransport $windows,
+    ) {}
+
+    /**
+     * Why the last send or probe failed.
+     *
+     * Held on the object because send() answers a bool, and the callers now
+     * need the reason — it goes on the print job and in front of the
+     * cashier. Widening every return type for something only the failure
+     * path reads would touch every call site.
+     */
+    private string $lastError = '';
+
+    public function lastError(): string
     {
+        return $this->lastError;
     }
 
-    public function send(Printer $printer, string $data): bool
+    /**
+     * @param  \DateTimeInterface|null  $printedOrderAt  when the order being printed was placed;
+     *         lets a recovery noticed by this send spare that order — see
+     *         PrinterHealth::markReachable.
+     */
+    public function send(Printer $printer, string $data, ?\DateTimeInterface $printedOrderAt = null): bool
     {
+        $this->lastError = '';
+
         try {
-            $printer->isUsb() ? $this->sendUsb($printer, $data) : $this->sendNetwork($printer, $data);
-            $printer->recordStatus(reachable: true);
+            match (true) {
+                $printer->isWindowsSpooler() => $this->windows->send($printer, $data),
+                $printer->isUsb() => $this->sendUsb($printer, $data),
+                default => $this->sendNetwork($printer, $data),
+            };
+            // The order this send belongs to, so a recovery noticed here
+            // cannot hold the rest of that same order — see
+            // PrinterHealth::markReachable.
+            $printer->recordStatus(reachable: true, printedOrderAt: $printedOrderAt);
 
             return true;
         } catch (Throwable $e) {
             Log::warning("Printer send failed: {$printer->name} ({$printer->connection_type}) — {$e->getMessage()}");
-            $printer->recordStatus(reachable: false);
+            // The reason is kept on the printer, not only in the log:
+            // whoever fixes it reads the printers screen, and "offline"
+            // alone cannot tell a refused socket from a wrong IP from a
+            // Windows share that no longer exists.
+            $printer->recordStatus(reachable: false, error: $e->getMessage());
+            $this->lastError = $e->getMessage();
 
             return false;
         }
@@ -42,13 +77,26 @@ class PrinterTransport
      */
     public function probe(Printer $printer): bool
     {
+        $this->lastError = '';
+
         try {
-            $printer->isUsb() ? $this->usb->probe($printer->usb_vendor_id, $printer->usb_product_id) : $this->probeNetwork($printer);
+            match (true) {
+                // A spooler printer has no address to open a socket to, so the
+                // network probe would fail it every time — the scheduled
+                // sweep would paint a perfectly working till printer red and
+                // "test connection" would never pass. Asking Windows whether
+                // the share can be opened is the equivalent question, and it
+                // queues nothing.
+                $printer->isWindowsSpooler() => $this->probeWindows($printer),
+                $printer->isUsb() => $this->usb->probe($printer->usb_vendor_id, $printer->usb_product_id),
+                default => $this->probeNetwork($printer),
+            };
             $printer->recordStatus(reachable: true);
 
             return true;
         } catch (Throwable $e) {
-            $printer->recordStatus(reachable: false);
+            $printer->recordStatus(reachable: false, error: $e->getMessage());
+            $this->lastError = $e->getMessage();
 
             throw $e;
         }
@@ -56,7 +104,10 @@ class PrinterTransport
 
     private function probeNetwork(Printer $printer): void
     {
-        $socket = @fsockopen($printer->ip_address, $printer->port, $errno, $errstr, 3);
+        // Same timeout as the send path: the sweep walks every printer,
+        // and 3s each turned a handful of dead printers into a sweep that
+        // outlived its own one-minute schedule.
+        $socket = @fsockopen($printer->ip_address, $printer->port, $errno, $errstr, self::CONNECT_TIMEOUT_SECONDS);
 
         if (! $socket) {
             throw new RuntimeException($errstr ?: "unreachable ({$printer->ip_address}:{$printer->port})");
@@ -73,11 +124,22 @@ class PrinterTransport
     // Some thermal printer firmware (this restaurant's شيشة printer,
     // confirmed) briefly refuses new TCP connections right after closing
     // a previous one — it's still physically plugged in and working, it
-    // just needs a moment. The job-level retry (30s backoff) is the
-    // right safety net for a printer that's genuinely off/unplugged, but
-    // it's far too slow for a hiccup that clears up in under a second —
-    // so a handful of fast in-process retries happen here first.
-    private const CONNECT_ATTEMPTS = 4;
+    // just needs a moment. So a couple of fast in-process retries happen
+    // here, before the job-level retry gets involved.
+    //
+    // Two attempts, not four, and a 1.2s connect timeout, not 3s. The old
+    // numbers meant a printer that was simply switched off held the worker
+    // for 4 × (3s + 0.7s) ≈ 15 seconds — per job-level attempt — and the
+    // queue is serial, so every ticket behind it waited too. One dead
+    // printer could stall the whole pass. These numbers still cover the
+    // hiccup they exist for (it clears in well under a second) while
+    // failing a genuinely absent printer in about 2.5s instead of 15.
+    //
+    // A printer that is actually there answers a LAN connect in
+    // milliseconds; 1.2s is already many times what it needs.
+    private const CONNECT_ATTEMPTS = 2;
+
+    private const CONNECT_TIMEOUT_SECONDS = 1.2;
 
     private const CONNECT_RETRY_DELAY_MICROSECONDS = 700_000;
 
@@ -87,7 +149,7 @@ class PrinterTransport
         $errstr = '';
 
         for ($attempt = 1; $attempt <= self::CONNECT_ATTEMPTS; $attempt++) {
-            $socket = @fsockopen($printer->ip_address, $printer->port, $errno, $errstr, 3);
+            $socket = @fsockopen($printer->ip_address, $printer->port, $errno, $errstr, self::CONNECT_TIMEOUT_SECONDS);
 
             if ($socket) {
                 break;
@@ -129,6 +191,19 @@ class PrinterTransport
             }
 
             $written += $chunk;
+        }
+    }
+
+    /**
+     * @throws RuntimeException when Windows will not accept the share
+     */
+    private function probeWindows(Printer $printer): void
+    {
+        if (! $this->windows->reachable($printer)) {
+            throw new RuntimeException(
+                "Windows will not open the printer share [{$printer->windows_share}]. ".
+                'Check that the printer is shared and the share name matches.'
+            );
         }
     }
 }

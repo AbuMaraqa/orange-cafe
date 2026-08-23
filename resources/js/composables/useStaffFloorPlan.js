@@ -1,4 +1,6 @@
 import { onMounted, onUnmounted, reactive, watch } from 'vue';
+import { router } from '@inertiajs/vue3';
+import { joinOrdersChannel, onSocketReconnect } from '@/composables/useOrdersChannel';
 
 const CLOSED_STATUSES = ['completed', 'cancelled'];
 
@@ -68,6 +70,26 @@ export function useStaffFloorPlan(getTables, getUntabledOrders) {
             delete patch.paid_at;
         }
 
+        // A round that was waiting for a person. Accepting it folds it into
+        // the table's bill and closes it, so it leaves this list; anything
+        // else about it (an extra item, a cancellation) is patched in place.
+        //
+        // Checked before the bill, because a waiting round is not
+        // active_order and findTableWithOrder would miss it entirely — the
+        // round would then be treated as brand new and land a second copy of
+        // itself on the table.
+        const tableAwaitingIt = tables.find((t) => t.pending_rounds?.some((r) => r.id === patch.id));
+
+        if (tableAwaitingIt) {
+            if (CLOSED_STATUSES.includes(patch.status) || !isAwaitingReview(patch)) {
+                removePendingRound(tableAwaitingIt, patch.id);
+            } else {
+                addPendingRound(tableAwaitingIt, patch);
+            }
+
+            return;
+        }
+
         const owningTable = findTableWithOrder(patch.id);
 
         if (owningTable) {
@@ -89,6 +111,9 @@ export function useStaffFloorPlan(getTables, getUntabledOrders) {
             }
 
             Object.assign(owningTable.active_order, patch);
+            // The bill's total is half of "what has this table asked for".
+            recountRequested(owningTable);
+
             return;
         }
 
@@ -119,27 +144,101 @@ export function useStaffFloorPlan(getTables, getUntabledOrders) {
     function relocate(order, tableId) {
         const targetTable = tableId ? tables.find((t) => t.id === tableId) : null;
 
-        if (targetTable) {
-            targetTable.active_order = order;
-        } else {
+        if (!targetTable) {
             untabledOrders.unshift(order);
+
+            return;
         }
+
+        // A round arriving on a table that is already running a bill goes
+        // *beside* it, never over it.
+        //
+        // This used to assign straight onto active_order, and a customer
+        // ordering a second time made their table's bill vanish from every
+        // floor screen mid-service: the tile dropped from 100.00 to the
+        // 20.00 of the new round, and the sheet showed one item where there
+        // had been four. Nothing was lost in the database — the server sends
+        // the bill and the waiting rounds separately — but the screen had
+        // overwritten one with the other, so a waiter asked what the table
+        // had ordered could only see the last thing they said.
+        //
+        // A round is not the bill until somebody accepts it, at which point
+        // the server folds it in and the merge arrives as a normal update.
+        if (targetTable.active_order && isAwaitingReview(order) && !isAwaitingReview(targetTable.active_order)) {
+            addPendingRound(targetTable, order);
+
+            return;
+        }
+
+        targetTable.active_order = order;
     }
 
-    let channel = null;
+    function isAwaitingReview(order) {
+        return order?.status === 'pending';
+    }
 
-    onMounted(async () => {
-        if (!window.Echo) {
-            await import('../echo');
+    /** @param {object} table @param {object} order */
+    function addPendingRound(table, order) {
+        table.pending_rounds ??= [];
+
+        const existing = table.pending_rounds.find((r) => r.id === order.id);
+
+        if (existing) {
+            Object.assign(existing, order);
+        } else {
+            table.pending_rounds.push({ ...order });
         }
 
-        channel = window.Echo.private('orders');
-        channel.listen('.order.placed', (event) => upsert(event.order, true));
-        channel.listen('.order.status-updated', (event) => upsert(event.order, false));
+        recountRequested(table);
+    }
+
+    function removePendingRound(table, orderId) {
+        if (!table.pending_rounds?.length) return false;
+
+        const index = table.pending_rounds.findIndex((r) => r.id === orderId);
+
+        if (index === -1) return false;
+
+        table.pending_rounds.splice(index, 1);
+        recountRequested(table);
+
+        return true;
+    }
+
+    /**
+     * What the table has asked for in total, kept in step with the rounds.
+     *
+     * The server computes the same figure; this is the between-requests
+     * version, so the number does not sit still while the list beneath it
+     * grows.
+     */
+    function recountRequested(table) {
+        table.requested_total_cents = (table.active_order?.total_cents ?? 0)
+            + (table.pending_rounds ?? []).reduce((sum, r) => sum + (r.total_cents ?? 0), 0);
+    }
+
+    // Reference counted, so unmounting this screen cannot unsubscribe the
+    // waiter-call alerts running beside it — see useOrdersChannel.
+    let leaveChannel = null;
+    let unbindReconnect = null;
+
+    onMounted(async () => {
+        leaveChannel = await joinOrdersChannel({
+            '.order.placed': (event) => upsert(event.order, true),
+            '.order.status-updated': (event) => upsert(event.order, false),
+        });
+
+        // Re-read the floor whenever the socket comes back, so anything
+        // missed while it was away corrects itself. `only` keeps it to this
+        // screen's own props rather than a full page load.
+        unbindReconnect = onSocketReconnect(() => {
+            router.reload({ only: ['tables', 'untabledOrders'] });
+        });
     });
 
     onUnmounted(() => {
-        window.Echo?.leave('orders');
+        leaveChannel?.();
+        unbindReconnect?.();
     });
 
     return { tables, untabledOrders };

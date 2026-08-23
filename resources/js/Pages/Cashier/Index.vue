@@ -1,14 +1,21 @@
 <script setup>
-import { computed, ref } from 'vue';
-import NavIcon from '@/Components/NavIcon.vue';
+import { computed, onMounted, ref } from 'vue';
 import OrderCard from '@/Components/Staff/OrderCard.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
+import OrderAlertPopup from '@/Components/Staff/OrderAlertPopup.vue';
+import PrimaryButton from '@/Components/PrimaryButton.vue';
+import PrintAlert from '@/Components/Staff/PrintAlert.vue';
+import TableBillModal from '@/Components/Staff/TableBillModal.vue';
 import TableFloorPlan from '@/Components/Staff/TableFloorPlan.vue';
 import TableMovePicker from '@/Components/Staff/TableMovePicker.vue';
+import SoundUnlockNotice from '@/Components/Staff/SoundUnlockNotice.vue';
+import WaiterCallBanner from '@/Components/Staff/WaiterCallBanner.vue';
+import WaiterCallPopup from '@/Components/Staff/WaiterCallPopup.vue';
 import { nextStatus } from '@/constants/orderStatus';
+import { useOrderAlerts } from '@/composables/useOrderAlerts';
 import { useStaffFloorPlan } from '@/composables/useStaffFloorPlan';
+import { useWaiterCalls } from '@/composables/useWaiterCalls';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 
 const props = defineProps({
@@ -20,11 +27,56 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    waiterCalls: {
+        type: Array,
+        default: () => [],
+    },
+    serviceCharges: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const { t } = useI18n();
 const page = usePage();
+const isAdmin = computed(() => (page.props.auth.roles ?? []).includes('admin'));
 const { tables, untabledOrders } = useStaffFloorPlan(() => props.tables, () => props.untabledOrders);
+
+// The till needs to hear a table order for the same reason the floor does:
+// it is the screen somebody is usually standing at, and an order that
+// nobody notices is an order nobody takes to the table. See the waiter
+// screen for why this reads from props rather than the floor plan state.
+const knownOrders = () => [
+    ...props.tables.map((table) => table.active_order).filter(Boolean),
+    ...props.untabledOrders,
+];
+
+const {
+    alert: orderAlert,
+    dismissAlert: dismissOrderAlert,
+    pendingCount: queuedOrderAlerts,
+} = useOrderAlerts(knownOrders);
+
+
+// The service chime, on the till as well as the floor. The cashier is
+// often the person standing closest to the tables, and on a quiet shift
+// the waiter board may not be open anywhere — in which case a customer
+// pressing the button on their table produced a sound in an empty room.
+//
+// The popup stays on the waiter board: answering a call is their job, and
+// a full-screen sheet arriving mid-payment is one the cashier would
+// dismiss without reading. Here it is the banner and the chime.
+// The popup as well as the banner. The till used to get only the quiet
+// list down the page, which meant a table asking for something reached the
+// one member of staff most likely to be standing still — and least likely
+// to be scrolling — as a line of text they had to notice on their own.
+const { calls, popupCall, dismissPopup } = useWaiterCalls(props.waiterCalls);
+
+function acknowledgeCall(call) {
+    if (popupCall.value?.id === call.id) dismissPopup();
+
+    router.patch(route('waiter-calls.acknowledge', call.id), {}, { preserveScroll: true });
+}
 
 const tableSearch = ref('');
 const filteredTables = computed(() => {
@@ -74,6 +126,30 @@ function printForCashier(order) {
 const selected = ref(null);
 const showMovePicker = ref(false);
 
+// Reopened from ?table= — coming back from the order screen lands on
+// the table that was open, not at the top of the room. Matched by id
+// against the live list so a table that has since been deleted simply
+// opens nothing rather than throwing.
+onMounted(() => {
+    const params = new URLSearchParams(window.location.search);
+    const wanted = Number(params.get('table'));
+
+    if (!wanted) return;
+
+    selected.value = tables.find((tbl) => tbl.id === wanted) ?? null;
+
+    // The parameter is an instruction to carry out once, not a piece of
+    // state. Left in the address bar it reopened this table's sheet on
+    // every refresh — the waiter reloads to see the floor and gets one
+    // table's bill in their face instead, again and again, with no way to
+    // make it stop short of editing the URL.
+    params.delete('table');
+
+    const query = params.toString();
+
+    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
+});
+
 function openTable(table) {
     selected.value = table;
 }
@@ -89,6 +165,30 @@ function onTableMoved() {
 
     <AuthenticatedLayout>
         <template #header>{{ $t('cashier.title') }}</template>
+
+        <!-- The one thing a cashier must be told about printing, and the
+             only place they are told it. Everything technical stays on the
+             printers screen. -->
+        <PrintAlert :details-route="page.props.auth.roles.includes('admin') ? route('admin.print-jobs.index') : null" />
+
+        <SoundUnlockNotice />
+
+        <WaiterCallBanner :calls="calls" can-acknowledge @acknowledge="acknowledgeCall" />
+
+        <WaiterCallPopup
+            :call="popupCall"
+            :remaining-count="Math.max(calls.length - 1, 0)"
+            can-acknowledge
+            @dismiss="dismissPopup"
+            @acknowledge="acknowledgeCall"
+        />
+
+        <OrderAlertPopup
+            :alert="orderAlert"
+            :pending-count="queuedOrderAlerts"
+            @dismiss="dismissOrderAlert"
+        />
+
 
         <div class="mb-4 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
             <span class="text-sm text-gray-500">{{ t('tables.title') }}</span>
@@ -107,7 +207,7 @@ function onTableMoved() {
 
         <div v-if="untabledOrders.length > 0" class="mt-8">
             <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('waiter.other_orders') }}</h3>
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <OrderCard
                     v-for="order in untabledOrders"
                     :key="order.id"
@@ -127,46 +227,43 @@ function onTableMoved() {
             </div>
         </div>
 
-        <!-- Table popup: the active order rendered with the same OrderCard
-             used for untabled orders, so payment/print/advance behave
-             identically whether or not the order happens to sit on a table. -->
-        <div v-if="selected" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4" @click.self="selected = null">
-            <div class="w-full max-w-sm">
-                <div class="mb-2 flex items-center justify-between px-1">
-                    <h3 class="text-lg font-semibold text-white drop-shadow">{{ selected.label }}</h3>
-                    <button type="button" class="text-white/80 hover:text-white" @click="selected = null">
-                        <NavIcon name="close" class="h-5 w-5" />
-                    </button>
-                </div>
+        <!-- The table's bill. It carries its own pay/print/advance and, for
+             an administrator, line editing — the till is where a discount
+             gets agreed, so that is where it has to be changeable. -->
+        <TableBillModal
+            v-if="selected"
+            :table="selected"
+            :can-edit="isAdmin"
+            :service-charges="serviceCharges"
+            can-add-service-charge
+            can-pay
+            can-advance
+            can-move
+            can-cancel
+            can-print
+            can-print-cashier
+            can-invoice
+            @close="selected = null"
+            @move="showMovePicker = true"
+        >
+            <!-- The till opens tables too. A walk-in who orders and pays at
+                 the counter, or a customer already sitting down that nobody
+                 has got to yet, should not have to wait for a waiter to be
+                 free before anything reaches the kitchen. Same screen the
+                 waiter uses — the order is born confirmed and prints
+                 immediately either way (see config/orders.php). -->
+            <template #primary-action>
+                <Link :href="route('waiter.orders.create', { table_id: selected.id })" class="block">
+                    <PrimaryButton class="h-11 w-full justify-center text-sm">{{ $t('waiter.add_items') }}</PrimaryButton>
+                </Link>
+            </template>
 
-                <OrderCard
-                    v-if="selected.active_order"
-                    :order="selected.active_order"
-                    :next-status-label="statusLabel(selected.active_order.status)"
-                    show-pay
-                    show-invoice
-                    show-print
-                    show-cashier-print
-                    show-item-prices
-                    @advance="advance(selected.active_order)"
-                    @pay="markPaid(selected.active_order, $event)"
-                    @print="printOrder(selected.active_order)"
-                    @print-cashier="printForCashier(selected.active_order)"
-                />
-                <div v-else class="rounded-lg border border-gray-200 bg-white p-4 text-center text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900">
-                    {{ $t('tables.empty') }}
-                </div>
-
-                <SecondaryButton
-                    v-if="selected.active_order && !selected.active_order.is_paid"
-                    type="button"
-                    class="mt-3 w-full justify-center"
-                    @click="showMovePicker = true"
-                >
-                    {{ $t('tables.move_table') }}
-                </SecondaryButton>
-            </div>
-        </div>
+            <template #empty-actions>
+                <Link :href="route('waiter.orders.create', { table_id: selected.id })" class="block">
+                    <PrimaryButton class="h-11 w-full justify-center text-sm">{{ $t('tables.open_table') }}</PrimaryButton>
+                </Link>
+            </template>
+        </TableBillModal>
 
         <TableMovePicker
             v-if="showMovePicker && selected?.active_order"

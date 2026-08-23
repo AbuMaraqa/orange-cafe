@@ -28,10 +28,6 @@ const props = defineProps({
 const emit = defineEmits(['add']);
 const { t } = useI18n();
 
-// No favorites feature backing this yet — purely a local visual toggle,
-// matching the reference design's heart icon on each row.
-const liked = ref(false);
-
 // A product can have image_url set but point at a file that's since been
 // deleted/moved — without this, the browser falls back to showing the
 // raw alt text where the photo should be instead of the logo tier below.
@@ -52,24 +48,35 @@ function formatPrice(cents) {
              row in an RTL document lays its first child at the visual
              *start* (right edge), so this puts the thumbnail on the right
              and the text flowing to its left — matching the reference. -->
-        <div class="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-            <img
-                v-if="product.image_url && !imageFailed"
-                :src="product.image_url"
-                :alt="product.name"
-                class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                @error="imageFailed = true"
-            />
-            <div v-else-if="logoUrl" class="flex h-full w-full items-center justify-center bg-white p-3 dark:bg-gray-900">
-                <img :src="logoUrl" :alt="product.name" class="h-full w-full object-contain opacity-80" />
-            </div>
-            <div v-else class="flex h-full w-full items-center justify-center text-gray-300 dark:text-gray-700">
-                <NavIcon name="camera" class="h-7 w-7" />
+        <!-- A rounded square rather than a circle. The section tiles above
+             are circular because they are navigation — a shape you tap to
+             go somewhere. This is the dish itself, and a circular mask
+             throws away the corners of every photo: about a quarter of the
+             food, taken off the plate before the customer sees it. Square
+             keeps it, and keeps the same shape the photo was framed in.
+             The clipping stays on an inner element so the featured star can
+             sit on the edge rather than be cut off by `overflow-hidden`. -->
+        <div class="relative h-24 w-24 shrink-0">
+            <div class="h-full w-full overflow-hidden rounded-2xl bg-gray-100 dark:bg-gray-800">
+                <img
+                    v-if="product.image_url && !imageFailed"
+                    :src="product.image_url"
+                    :alt="product.name"
+                    class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    @error="imageFailed = true"
+                />
+                <div v-else-if="logoUrl" class="flex h-full w-full items-center justify-center bg-white p-3 dark:bg-gray-900">
+                    <img :src="logoUrl" :alt="product.name" class="h-full w-full object-contain opacity-80" />
+                </div>
+                <div v-else class="flex h-full w-full items-center justify-center text-gray-300 dark:text-gray-700">
+                    <NavIcon name="camera" class="h-7 w-7" />
+                </div>
             </div>
 
+            <!-- On the photo's corner, over the image rather than beside it. -->
             <span
                 v-if="product.is_featured"
-                class="absolute start-1 top-1 inline-flex items-center rounded-full bg-white/90 p-1 text-amber-500 shadow-sm backdrop-blur"
+                class="absolute start-2 top-2 inline-flex items-center rounded-full bg-white/90 p-1 text-amber-500 shadow-sm backdrop-blur"
             >
                 <NavIcon name="star" class="h-3 w-3" />
             </span>
@@ -77,42 +84,28 @@ function formatPrice(cents) {
 
         <div class="min-w-0 flex-1 py-1">
             <h4
-                class="pe-6 text-sm font-semibold text-gray-900 dark:text-gray-100"
+                class="text-base font-semibold leading-snug text-gray-900 dark:text-gray-100"
                 :class="wrapName ? 'break-words' : 'truncate'"
             >
                 {{ product.name }}
             </h4>
-            <p v-if="product.description" class="mt-1 line-clamp-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+            <p v-if="product.description" class="mt-1 line-clamp-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
                 {{ product.description }}
             </p>
 
             <div class="mt-2 flex items-center gap-2">
-                <span class="text-sm font-bold tabular-nums" style="color: var(--brand-primary)">{{ formatPrice(product.price_cents) }}</span>
-                <span v-if="product.modifier_groups.length" class="text-[11px] text-gray-400">{{ t('menu.customizable') }}</span>
-                <span v-if="product.prep_time_minutes" class="inline-flex items-center gap-0.5 text-[11px] text-gray-400">
+                <span class="text-base font-bold tabular-nums" style="color: var(--brand-primary)">{{ formatPrice(product.price_cents) }}</span>
+                <span v-if="product.modifier_groups?.length" class="text-xs text-gray-500 dark:text-gray-400">{{ t('menu.customizable') }}</span>
+                <span v-if="product.prep_time_minutes" class="inline-flex items-center gap-0.5 text-xs text-gray-500 dark:text-gray-400">
                     <NavIcon name="clock" class="h-3 w-3" />
                     {{ t('menu.prep_time', { minutes: product.prep_time_minutes }) }}
                 </span>
             </div>
 
-            <div v-if="product.tags.length" class="mt-1 flex flex-wrap gap-1">
-                <span v-for="tag in product.tags" :key="tag.id" class="text-[11px] text-gray-400">{{ tag.icon }} {{ tag.name }}</span>
+            <div v-if="product.tags?.length" class="mt-1 flex flex-wrap gap-1">
+                <span v-for="tag in (product.tags ?? [])" :key="tag.id" class="text-xs text-gray-500 dark:text-gray-400">{{ tag.icon }} {{ tag.name }}</span>
             </div>
         </div>
 
-        <span
-            role="button"
-            tabindex="0"
-            class="absolute end-3 top-3 flex h-6 w-6 items-center justify-center rounded-full text-gray-300 transition hover:text-red-500 dark:text-gray-600"
-            @click.stop="liked = !liked"
-            @keydown.enter.stop="liked = !liked"
-        >
-            <svg v-if="!liked" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-            </svg>
-            <svg v-else class="h-4 w-4 text-red-500" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 21s-8-4.5-8-11.5A5.5 5.5 0 0112 6.5 5.5 5.5 0 0120 9.5C20 16.5 12 21 12 21z" />
-            </svg>
-        </span>
     </button>
 </template>

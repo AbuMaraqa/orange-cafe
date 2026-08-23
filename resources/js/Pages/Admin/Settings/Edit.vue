@@ -33,6 +33,7 @@ const form = useForm({
     wifi_ssid: props.setting.wifi_ssid ?? '',
     wifi_password: props.setting.wifi_password ?? '',
     receipt_footer_text: props.setting.receipt_footer_text ?? '',
+    business_day_starts_at: props.setting.business_day_starts_at ?? '00:00',
 });
 
 const logoPreview = ref(props.setting.logo_url);
@@ -132,6 +133,7 @@ function submit() {
                     >
                         <option value="tajawal">Tajawal</option>
                         <option value="almarai">Almarai</option>
+                        <option value="plex-arabic">IBM Plex Sans Arabic</option>
                         <option value="system">{{ $t('settings.font_system') }}</option>
                     </select>
                     <InputError class="mt-2" :message="form.errors.font_family" />
@@ -221,6 +223,27 @@ function submit() {
                     <InputError class="mt-2" :message="form.errors.receipt_footer_text" />
                 </div>
                 <p class="mt-3 text-xs text-gray-400">{{ $t('settings.receipt_footer_hint') }}</p>
+            </section>
+
+            <!-- When the café's day starts, which is not the same question
+                 as when it opens: it is the line the takings are cut at. A
+                 venue serving past midnight sets it after closing time so
+                 the whole night lands on one date and one drawer count. -->
+            <section class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+                <h3 class="mb-4 font-medium text-gray-900 dark:text-gray-100">{{ $t('settings.business_day') }}</h3>
+
+                <div class="max-w-xs">
+                    <InputLabel for="business_day_starts_at" :value="$t('settings.business_day_starts_at')" />
+                    <TextInput
+                        id="business_day_starts_at"
+                        v-model="form.business_day_starts_at"
+                        type="time"
+                        dir="ltr"
+                        class="mt-1 block w-40"
+                    />
+                    <InputError class="mt-2" :message="form.errors.business_day_starts_at" />
+                </div>
+                <p class="mt-3 text-xs text-gray-400">{{ $t('settings.business_day_hint') }}</p>
             </section>
 
             <div class="flex justify-end">

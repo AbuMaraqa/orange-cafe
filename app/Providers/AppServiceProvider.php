@@ -2,12 +2,15 @@
 
 namespace App\Providers;
 
+use App\Listeners\OpenControlPanelOnTrayClick;
 use App\Services\Native\NativeEnvSettings;
 use App\Services\Native\NativeNetworkInfo;
 use App\Services\Native\PublicUrlResolver;
 use App\Services\Printing\PopplerBinary;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
+use Native\Laravel\Events\MenuBar\MenuBarClicked;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -33,5 +36,12 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Vite::prefetch(concurrency: 3);
+
+        // The only way back into a running app. Double-clicking the desktop
+        // icon cannot do it: NativePHP quits the second instance on the
+        // single-instance lock, and the handler that should focus the
+        // existing window checks a `mainWindow` property that is declared
+        // null and never assigned. See OpenControlPanelOnTrayClick.
+        Event::listen(MenuBarClicked::class, OpenControlPanelOnTrayClick::class);
     }
 }

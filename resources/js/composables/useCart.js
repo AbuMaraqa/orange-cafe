@@ -1,4 +1,5 @@
 import { computed, reactive, watch } from 'vue';
+import { unitPriceCents } from '@/composables/useProductPricing';
 
 const STORAGE_KEY = 'orange.cart.v1';
 
@@ -44,7 +45,103 @@ function uniqueId() {
     return `line-${Date.now()}-${idCounter}`;
 }
 
+/**
+ * Every orderable line on the live menu, by menu_item_id.
+ *
+ * Built from the payload the page was rendered with, so it is by
+ * definition the current catalogue: current prices, current names, and
+ * only the items still on sale.
+ */
+function indexMenus(menus) {
+    const index = new Map();
+
+    const walk = (category) => {
+        for (const product of category.products ?? []) {
+            const modifiers = new Map();
+
+            for (const group of product.modifier_groups ?? []) {
+                for (const modifier of group.modifiers ?? []) {
+                    modifiers.set(modifier.id, modifier);
+                }
+            }
+
+            index.set(product.menu_item_id, { product, modifiers });
+        }
+
+        for (const sub of category.subcategories ?? []) {
+            walk(sub);
+        }
+    };
+
+    for (const menu of menus ?? []) {
+        for (const category of menu.categories ?? []) {
+            walk(category);
+        }
+    }
+
+    return index;
+}
+
 export function useCart() {
+    /**
+     * Re-checks a restored cart against the menu as it is now.
+     *
+     * The stored line carries the price it had when it was added, and this
+     * cart lives in localStorage indefinitely — so a tablet left on the
+     * menu page, or a customer returning the next day, kept showing
+     * whatever the dish used to cost. The server never believed it (see
+     * OrderItemWriter, which recomputes every line from the menu), which is
+     * the right call for safety and exactly what made the bug so quiet: the
+     * customer was shown one total and charged another, with nothing
+     * anywhere saying the two had diverged.
+     *
+     * Reconciling on load is the fix. Dropped rather than repriced when the
+     * dish is gone or one of its chosen extras no longer exists, because a
+     * line whose composition cannot be honoured is not the thing the
+     * customer chose.
+     *
+     * @returns {{removed: string[], repriced: string[]}} for telling them
+     */
+    function reconcile(menus) {
+        const index = indexMenus(menus);
+        const removed = [];
+        const repriced = [];
+
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i];
+            const live = index.get(line.menu_item_id);
+
+            if (!live) {
+                removed.push(line.name);
+                lines.splice(i, 1);
+                continue;
+            }
+
+            const liveModifiers = line.modifiers.map((m) => live.modifiers.get(m.id));
+
+            if (liveModifiers.some((m) => m === undefined)) {
+                removed.push(line.name);
+                lines.splice(i, 1);
+                continue;
+            }
+
+            const livePrice = unitPriceCents(live.product, liveModifiers);
+
+            if (livePrice !== line.unit_price_cents) {
+                repriced.push(line.name);
+                line.unit_price_cents = livePrice;
+            }
+
+            // The name and picture are shown straight from the cart, so they
+            // go stale the same way the price did.
+            line.name = live.product.name;
+            line.image_url = live.product.image_url;
+            line.modifiers = liveModifiers.map((m) => ({ id: m.id, modifier_group_id: m.modifier_group_id, name: m.name, price_cents: m.price_cents }));
+        }
+
+        return { removed, repriced };
+    }
+
     function add(product, selectedModifiers, quantity = 1, notes = '') {
         const modifierIds = selectedModifiers.map((m) => m.id);
         const dedup = dedupKey(product.menu_item_id, modifierIds);
@@ -65,8 +162,10 @@ export function useCart() {
             menu_item_id: product.menu_item_id,
             name: product.name,
             image_url: product.image_url,
-            unit_price_cents: product.price_cents + selectedModifiers.reduce((sum, m) => sum + m.price_cents, 0),
-            modifiers: selectedModifiers.map((m) => ({ id: m.id, name: m.name, price_cents: m.price_cents })),
+            // useProductPricing owns the rule — a size replaces the price,
+            // an extra adds to it.
+            unit_price_cents: unitPriceCents(product, selectedModifiers),
+            modifiers: selectedModifiers.map((m) => ({ id: m.id, modifier_group_id: m.modifier_group_id, name: m.name, price_cents: m.price_cents })),
             quantity,
             notes,
         });
@@ -105,5 +204,5 @@ export function useCart() {
         }));
     }
 
-    return { lines, add, updateQuantity, remove, clear, count, totalCents, toOrderPayload };
+    return { lines, add, updateQuantity, remove, clear, count, totalCents, toOrderPayload, reconcile };
 }

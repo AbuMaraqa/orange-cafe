@@ -1,9 +1,18 @@
 <?php
 
+use App\Http\Middleware\EnsureRequestIsLocal;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SyncUserLocale;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
+use Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRedirectFilter;
+use Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRoutes;
+use Mcamara\LaravelLocalization\Middleware\LocaleSessionRedirect;
+use Spatie\Permission\Middleware\PermissionMiddleware;
+use Spatie\Permission\Middleware\RoleMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,19 +27,45 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [
-            \App\Http\Middleware\HandleInertiaRequests::class,
-            \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
+            HandleInertiaRequests::class,
+            AddLinkHeadersForPreloadedAssets::class,
         ]);
 
         $middleware->alias([
-            'localize' => \Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRoutes::class,
-            'localizationRedirect' => \Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRedirectFilter::class,
-            'localeSessionRedirect' => \Mcamara\LaravelLocalization\Middleware\LocaleSessionRedirect::class,
-            'sync.locale' => \App\Http\Middleware\SyncUserLocale::class,
-            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
-            'local-only' => \App\Http\Middleware\EnsureRequestIsLocal::class,
+            'localize' => LaravelLocalizationRoutes::class,
+            'localizationRedirect' => LaravelLocalizationRedirectFilter::class,
+            'localeSessionRedirect' => LocaleSessionRedirect::class,
+            'sync.locale' => SyncUserLocale::class,
+            'role' => RoleMiddleware::class,
+            // Spatie ships this but registers no alias of its own on Laravel
+            // 11 — every alias here is explicit. The accounting routes are
+            // guarded per permission rather than per role, because a cashier
+            // has to be able to count the till at night and must not be able
+            // to reopen a day that was already signed off.
+            'permission' => PermissionMiddleware::class,
+            'local-only' => EnsureRequestIsLocal::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        // A refusal is not a fault.
         //
+        // Spatie throws UnauthorizedException when somebody reaches a screen
+        // their role does not open, and Laravel reports it at ERROR with a
+        // full stack trace. But the guard doing its job is the system
+        // working: a cashier following a bookmark to the cash box after the
+        // money permissions were taken away is answered correctly with a
+        // 403, and there is nothing for anyone to fix.
+        //
+        // Left reported, the log fills with entries that read like faults —
+        // two of them arrived within a minute of tightening the cashier's
+        // permissions — and the failures that do need attention sit among
+        // them looking identical. A log where everything is an error is a
+        // log nobody reads.
+        //
+        // The refusal itself is unaffected: this changes what is written
+        // down, never what is allowed.
+        $exceptions->dontReport([
+            \Spatie\Permission\Exceptions\UnauthorizedException::class,
+        ]);
     })->create();
+

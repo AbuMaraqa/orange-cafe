@@ -1,6 +1,9 @@
 <?php
 
 return [
+
+    // Printed beside each dish on the kitchen ticket.
+    'minutes' => 'دقيقة',
     'invoice' => 'فاتورة',
     'date' => 'التاريخ',
     'table' => 'طاولة',
@@ -16,6 +19,7 @@ return [
     'unpaid' => 'غير مدفوع',
     'amount_paid' => 'المبلغ المستلم',
     'change_due' => 'الباقي',
+    'order_discount' => 'خصم',
     'discount' => 'خصم/تقريب',
     'thank_you' => 'ننتظركم دائما ... <3',
     'scan_instruction' => 'امسح الرمز لعرض القائمة وطلب الطعام',
@@ -23,4 +27,7 @@ return [
     'wifi_heading' => 'واي فاي مجاني',
     'wifi_network' => 'اسم الشبكة',
     'wifi_instruction' => 'امسح للاتصال بشبكة الواي فاي',
+    'note' => 'ملاحظة',
+    'added_round' => 'إضافة على طلب سابق',
+    'order_note' => 'ملاحظة على الطلبية',
 ];

@@ -17,11 +17,15 @@ class UpdatePrinterRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'station' => ['required', 'string', 'max:100'],
-            'connection_type' => ['required', Rule::in(['network', 'usb'])],
+            'connection_type' => ['required', Rule::in(['network', 'usb', 'windows'])],
             'ip_address' => ['required_if:connection_type,network', 'nullable', 'ip'],
             'port' => ['required_if:connection_type,network', 'nullable', 'integer', 'min:1', 'max:65535'],
             'usb_vendor_id' => ['required_if:connection_type,usb', 'nullable', 'regex:/^[0-9a-fA-F]{4}$/'],
             'usb_product_id' => ['required_if:connection_type,usb', 'nullable', 'regex:/^[0-9a-fA-F]{4}$/'],
+            // The share name the printer is published under in Windows.
+            // ip_address doubles as the host when it is shared from another
+            // PC; blank means this machine.
+            'windows_share' => ['required_if:connection_type,windows', 'nullable', 'string', 'max:128'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

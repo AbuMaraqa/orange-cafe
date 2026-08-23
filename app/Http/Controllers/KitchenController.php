@@ -15,7 +15,7 @@ class KitchenController extends Controller
     {
         $orders = Order::query()
             ->with('table', 'items.modifiers')
-            ->whereIn('status', ['pending', 'confirmed', 'preparing'])
+            ->whereIn('status', ['pending', 'confirmed'])
             ->latest()
             ->get();
 

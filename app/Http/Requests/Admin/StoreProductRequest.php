@@ -2,14 +2,27 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Http\Requests\Admin\Concerns\GeneratesSlug;
 use App\Services\LanguageRegistry;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreProductRequest extends FormRequest
 {
+    use GeneratesSlug;
+
     public function authorize(): bool
     {
         return true;
+    }
+
+    /**
+     * The slug box is left blank by the form whenever the name is not
+     * already Latin, which for this cafe is nearly always — so it is filled
+     * in here, from the name, before 'required' below ever looks at it.
+     */
+    protected function prepareForValidation(): void
+    {
+        $this->fillSlug('products');
     }
 
     public function rules(): array
@@ -27,7 +40,7 @@ class StoreProductRequest extends FormRequest
             'category_ids.*' => ['integer', 'exists:categories,id'],
             'slug' => ['required', 'string', 'max:255', 'alpha_dash', 'unique:products,slug'],
             'station' => ['nullable', 'string', 'max:100', 'exists:printers,station'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            'image' => ['nullable', 'image', 'max:15360'],
             'price_cents' => ['required', 'integer', 'min:0'],
             'prep_time_minutes' => ['nullable', 'integer', 'min:0', 'max:600'],
             'is_active' => ['sometimes', 'boolean'],

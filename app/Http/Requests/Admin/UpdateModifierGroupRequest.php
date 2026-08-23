@@ -20,6 +20,7 @@ class UpdateModifierGroupRequest extends FormRequest
 
         $rules = [
             'is_required' => ['sometimes', 'boolean'],
+            'is_variation' => ['sometimes', 'boolean'],
             'min_select' => ['required', 'integer', 'min:0'],
             'max_select' => ['nullable', 'integer', 'min:1', 'gte:min_select'],
             'is_active' => ['sometimes', 'boolean'],

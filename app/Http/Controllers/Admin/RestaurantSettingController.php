@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpdateRestaurantSettingRequest;
+use App\Services\Images\ImageOptimizer;
 use App\Services\PdfService;
 use App\Services\WifiQrCode;
 use App\Settings\RestaurantSettings;
@@ -37,6 +38,7 @@ class RestaurantSettingController extends Controller
                 'wifi_ssid' => $settings->wifi_ssid,
                 'wifi_password' => $settings->wifi_password,
                 'receipt_footer_text' => $settings->receipt_footer_text,
+                'business_day_starts_at' => $settings->business_day_starts_at,
             ],
         ]);
     }
@@ -49,7 +51,7 @@ class RestaurantSettingController extends Controller
             if ($settings->logo_path) {
                 Storage::disk('public')->delete($settings->logo_path);
             }
-            $data['logo_path'] = $request->file('logo')->store('branding', 'public');
+            $data['logo_path'] = app(ImageOptimizer::class)->store($request->file('logo'), 'branding');
         }
         unset($data['logo']);
 
@@ -57,7 +59,7 @@ class RestaurantSettingController extends Controller
             if ($settings->cover_image_path) {
                 Storage::disk('public')->delete($settings->cover_image_path);
             }
-            $data['cover_image_path'] = $request->file('cover_image')->store('branding', 'public');
+            $data['cover_image_path'] = app(ImageOptimizer::class)->store($request->file('cover_image'), 'branding');
         }
         unset($data['cover_image']);
 

@@ -25,6 +25,15 @@ const props = defineProps({
         type: Boolean,
         default: true,
     },
+    stations: {
+        type: Array,
+        default: () => [],
+    },
+    /** Address carried over from a discovered printer on the index screen. */
+    prefill: {
+        type: Object,
+        default: () => ({}),
+    },
 });
 
 const isEdit = computed(() => props.printer !== null);
@@ -33,10 +42,11 @@ const form = useForm({
     name: props.printer?.name ?? '',
     station: props.printer?.station ?? '',
     connection_type: props.printer?.connection_type ?? 'network',
-    ip_address: props.printer?.ip_address ?? '',
-    port: props.printer?.port ?? 9100,
+    ip_address: props.printer?.ip_address ?? props.prefill?.ip_address ?? '',
+    port: props.printer?.port ?? props.prefill?.port ?? 9100,
     usb_vendor_id: props.printer?.usb_vendor_id ?? '',
     usb_product_id: props.printer?.usb_product_id ?? '',
+    windows_share: props.printer?.windows_share ?? '',
     is_active: props.printer?.is_active ?? true,
 });
 
@@ -47,6 +57,13 @@ const form = useForm({
 // vendor-specific USB class rather than the standard Printer class (see
 // UsbPrinterTransport), so filtering by class would hide exactly the
 // devices this is for.
+// A station typed before this became a list still has to be editable, so
+// the box stays available and is pre-opened when the saved value is not one
+// of the offered options.
+const customStation = ref(
+    Boolean(props.printer?.station) && !props.stations.some((s) => s.value === props.printer.station)
+);
+
 const usbSupported = typeof navigator !== 'undefined' && 'usb' in navigator;
 const detectingUsb = ref(false);
 const usbDetectError = ref('');
@@ -98,7 +115,41 @@ function submit() {
 
                 <div>
                     <InputLabel for="station" :value="$t('admin.categories.station')" />
-                    <TextInput id="station" v-model="form.station" class="mt-1 block w-full" required :placeholder="$t('admin.categories.station_placeholder')" />
+                    <select
+                        v-if="!customStation"
+                        id="station"
+                        v-model="form.station"
+                        class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                        required
+                    >
+                        <option value="" disabled>— اختر المحطة —</option>
+                        <option v-for="station in stations" :key="station.value" :value="station.value">
+                            {{ station.label }}
+                        </option>
+                    </select>
+
+                    <TextInput
+                        v-else
+                        id="station"
+                        v-model="form.station"
+                        class="mt-1 block w-full"
+                        dir="ltr"
+                        required
+                        :placeholder="$t('admin.categories.station_placeholder')"
+                    />
+
+                    <button
+                        type="button"
+                        class="mt-1 text-xs underline"
+                        style="color: var(--brand-primary)"
+                        @click="customStation = !customStation"
+                    >
+                        {{ customStation ? 'اختيار من المحطات الموجودة' : 'كتابة محطة جديدة يدوياً' }}
+                    </button>
+
+                    <p v-if="form.station === 'cashier'" class="mt-1 text-xs text-gray-500">
+                        هذه الطابعة ستطبع الفواتير وتفتح درج النقود، وتستقبل تذاكر المطبخ إذا تعذّرت طابعة المطبخ.
+                    </p>
                     <p class="mt-1 text-xs text-gray-500">{{ $t('printers.station_hint') }}</p>
                     <InputError class="mt-2" :message="form.errors.station" />
                 </div>
@@ -111,9 +162,37 @@ function submit() {
                         class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
                     >
                         <option value="network">{{ $t('printers.connection_network') }}</option>
+                        <option value="windows">طابعة ويندوز (مشاركة) — تعمل مع USB</option>
                         <option value="usb">{{ $t('printers.connection_usb') }}</option>
                     </select>
                     <InputError class="mt-2" :message="form.errors.connection_type" />
+                </div>
+
+                <div v-if="form.connection_type === 'windows'" class="space-y-4">
+                    <div>
+                        <InputLabel for="windows_share" value="اسم مشاركة الطابعة في ويندوز" />
+                        <TextInput id="windows_share" v-model="form.windows_share" class="mt-1 block w-full" dir="ltr" placeholder="CASHIER" required />
+                        <InputError class="mt-2" :message="form.errors.windows_share" />
+                    </div>
+
+                    <div>
+                        <InputLabel for="windows_host" value="اسم الجهاز على الشبكة (اختياري)" />
+                        <TextInput id="windows_host" v-model="form.ip_address" class="mt-1 block w-full" dir="ltr" placeholder="اتركه فارغاً إذا الطابعة موصولة بهذا الجهاز" />
+                        <InputError class="mt-2" :message="form.errors.ip_address" />
+                    </div>
+
+                    <div class="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+                        <p class="mb-1 font-semibold">هذا الخيار هو الحل لطابعات USB.</p>
+                        <p>
+                            ويندوز عنده تعريف الطابعة أصلاً، فالتطبيق بيرسل الطباعة عن طريقه بدل ما يتصل
+                            بالـ USB مباشرة. للتفعيل على الجهاز الموصولة فيه الطابعة:
+                        </p>
+                        <p class="mt-1">
+                            الإعدادات ← الأجهزة والطابعات ← كبسة يمين على الطابعة ← Printer properties ←
+                            تبويب Sharing ← فعّل <span dir="ltr">Share this printer</span> ← اكتب اسم
+                            مشاركة بدون مسافات (مثلاً <span dir="ltr">CASHIER</span>) واكتبه هنا فوق.
+                        </p>
+                    </div>
                 </div>
 
                 <div v-if="form.connection_type === 'network'" class="grid grid-cols-3 gap-4">
@@ -129,7 +208,14 @@ function submit() {
                     </div>
                 </div>
 
-                <div v-else class="grid grid-cols-2 gap-4">
+                <!-- Explicitly the USB case, not "anything that is not
+                     network": with v-else this block also appeared for the
+                     Windows-share option, so a till printer configured
+                     through the spooler still showed USB vendor/product
+                     fields and the warning saying USB is impossible —
+                     directly contradicting the option the user had just
+                     chosen to solve exactly that. -->
+                <div v-if="form.connection_type === 'usb'" class="grid grid-cols-2 gap-4">
                     <!-- Shown above the fields, not beside them: on the
                          packaged desktop app nothing entered below can ever
                          print, so it has to be read before the form is

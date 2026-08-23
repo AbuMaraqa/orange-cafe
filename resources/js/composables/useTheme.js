@@ -17,8 +17,20 @@ function readInitial() {
     return systemPrefersDark() ? 'dark' : 'light';
 }
 
+/**
+ * True on the customer-facing pages, set server-side in app.blade.php.
+ *
+ * Checked here as well as in the pre-paint script because this module is a
+ * singleton that applies the theme the moment it is imported — without this
+ * a stored 'dark' would put the class straight back on after the script in
+ * the head had just removed it.
+ */
+function forcedLight() {
+    return document.documentElement.dataset.forceLight === 'true';
+}
+
 function applyTheme(value) {
-    document.documentElement.classList.toggle('dark', value === 'dark');
+    document.documentElement.classList.toggle('dark', value === 'dark' && !forcedLight());
 }
 
 // Module-level singleton: one shared theme state for the whole app, kept in

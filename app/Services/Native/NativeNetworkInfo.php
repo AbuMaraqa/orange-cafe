@@ -97,6 +97,67 @@ class NativeNetworkInfo
      * REVERB_HOST=localhost is the shipped default, that is the *normal*
      * case, not an edge one.
      */
+    /**
+     * Is the thing answering this port actually ours?
+     *
+     * portOpen() below only proves *something* accepts a connection, and
+     * that is how a real outage stayed invisible: Laragon's nginx had taken
+     * 8080, the panel probed 127.0.0.1:8080, nginx answered, and the status
+     * light went green — while every tablet dialling the LAN address got
+     * "403 Forbidden — nginx" and live updates were dead all day. A check
+     * that cannot tell our server from someone else's is worse than no
+     * check, because it actively argues against the person reporting the
+     * fault.
+     *
+     * The discriminator is the `Server:` header. Reverb is a ReactPHP
+     * socket server and sends none; nginx, Apache and IIS all announce
+     * themselves. So a named server on our port means the port is taken.
+     *
+     * @return array{reachable: bool, conflict: string|null}
+     */
+    public function identifyServer(string $host, int $port, float $timeout = 1.0): array
+    {
+        $connection = @fsockopen($host, $port, $errorCode, $errorMessage, $timeout);
+
+        if ($connection === false) {
+            return ['reachable' => false, 'conflict' => null];
+        }
+
+        try {
+            stream_set_timeout($connection, 1);
+
+            // A bare request is enough — we only need the status line and
+            // headers, and every HTTP server answers something.
+            fwrite($connection, "GET / HTTP/1.0\r\nHost: {$host}\r\nConnection: close\r\n\r\n");
+
+            $head = '';
+
+            // Bounded read: a websocket server that declines to answer must
+            // not hang the status panel.
+            while (! feof($connection) && strlen($head) < 2048) {
+                $chunk = fread($connection, 512);
+
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+
+                $head .= $chunk;
+
+                if (str_contains($head, "\r\n\r\n")) {
+                    break;
+                }
+            }
+        } finally {
+            fclose($connection);
+        }
+
+        if (preg_match('/^Server:\s*(.+)$/mi', $head, $matches)) {
+            return ['reachable' => true, 'conflict' => trim($matches[1])];
+        }
+
+        return ['reachable' => true, 'conflict' => null];
+    }
+
     public function portOpen(string $host, int $port, float $timeout = 1.0): bool
     {
         foreach ($this->candidateAddresses($host) as $address) {

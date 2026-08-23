@@ -16,6 +16,7 @@ use Native\Laravel\Facades\Menu;
 use Native\Laravel\Facades\MenuBar;
 use Native\Laravel\Facades\Settings;
 use Native\Laravel\Facades\Window;
+use Native\Laravel\Menu\Items\MenuItem;
 use Throwable;
 
 /**
@@ -204,6 +205,18 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         try {
             Artisan::call('migrate', ['--force' => true]);
 
+            // Every boot, not only the first. Migrations carry the schema
+            // forward on an upgrade; nothing carried the *rows* the app
+            // needs, because the only thing that seeded them ran solely when
+            // there was no administrator — and reinstalling over real data
+            // is not a first run.
+            //
+            // That is how a finished, tested accounting module ended up
+            // returning 403 on every screen of every installation: its
+            // permissions are seeded rows, and no upgrade path delivered
+            // them. See SyncReferenceDataCommand.
+            Artisan::call('app:sync-reference-data');
+
             if ($this->hasAdministrator()) {
                 return;
             }
@@ -321,8 +334,43 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         }
 
         $items[] = Menu::separator();
-        $items[] = Menu::quit('إغلاق الخادم');
 
+        // Not Menu::quit(). That is Electron's own quit, and it takes the
+        // window with it while the LAN server, Reverb, the queue and the
+        // scheduler keep running — NativePHP's source is candid about why
+        // ("Sometimes does not kill the subprocess of php server"). Closing
+        // from the tray therefore left a `php -S` holding port 8000 with
+        // the app apparently shut down, and the next launch had to fight
+        // its own leftovers for the port. That is the whole of "sometimes
+        // it starts and sometimes it doesn't".
+        //
+        // This route stops the children first and quits afterwards; see
+        // NativeSettingsController::shutdownPage().
+        $items[] = Menu::route('native.panel.shutdown-page', 'إغلاق الخادم');
+
+        // Wrapped, because this is the last thing boot() does and it had no
+        // guard: a tray that failed to appear took the rest of boot() with
+        // it — including recordRunningConfig() — and left nothing anywhere
+        // saying why. The app kept serving, so it looked like the icon had
+        // simply not been drawn.
+        //
+        // The tray is also the only visible way back into the control
+        // panel, so its absence has to be findable in the log rather than
+        // guessed at from another machine.
+        try {
+            $this->buildTray($items);
+        } catch (Throwable $e) {
+            Log::error('Failed to create the tray icon — the control panel is still reachable at /native/panel.', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * @param  MenuItem[]  $items
+     */
+    private function buildTray(array $items): void
+    {
         MenuBar::create()
             ->icon(public_path('icon.png'))
             ->tooltip('Orange Cafe Server')
@@ -366,8 +414,74 @@ class NativeAppServiceProvider implements ProvidesPhpIni
             'post_max_size' => '24M',
             // mPDF's Arabic shaping and the QR/barcode renderers are both
             // slower than a typical web request; the receipt PDF for a long
-            // order can genuinely take a few seconds.
+            // order can genuinely take a few seconds, and the panel's
+            // restart, legacy-import and backup routes need considerably
+            // more than that.
+            //
+            // This reaches the window server and every child process spawned
+            // through ChildProcess, but NOT the LAN server the tablets
+            // actually use: `artisan serve` starts `php -S` as a separate
+            // process and forwards no -d at all (ServeCommand::serverCommand),
+            // so that one runs on the cli-server defaults — 30s and 128M —
+            // whatever is set here. A slow request there has to raise its own
+            // limits; editing this array will not do it.
+            //
+            // And on a process that never returns, a time limit is not a
+            // safety net but a kill switch, so the four background services
+            // override it back to 0 — see NativeServices::DAEMON_INI.
             'max_execution_time' => '120',
+
+            // Without these the packaged app randomly comes up with no
+            // window at all, and nothing anywhere says why.
+            //
+            // The bundled php.exe ships no php.ini, so it runs on built-in
+            // defaults — which are opcache.enable=On with opcache.file_cache
+            // unset. On Windows OPcache must map its opcode handlers at a
+            // fixed base address in every process; when ASLR happens to have
+            // put something else there, PHP aborts during module startup with
+            // "Opcode handlers are unusable due to ASLR" / "Attempt to access
+            // invalid address" (Application event log, source "Zend OPcache")
+            // and the process is simply gone — no PHP error, no exit message.
+            //
+            // Which process dies is what makes it so confusing:
+            // opcache.enable_cli is Off, so `artisan native:config` survives
+            // and Electron happily gets its config. It is the PHP *server*
+            // (SAPI cli-server, where opcache.enable does apply) that
+            // vanishes. NativePHP only calls window.show() once that server
+            // POSTs back to /_native/api/booted, so the app is left as a live
+            // Electron process listening on port 4000, waiting forever for a
+            // callback from a server that is no longer running. No window, no
+            // tray icon, and an empty log because boot() never ran.
+            //
+            // It is a random address-space collision, so it reproduces on
+            // roughly one launch in three and the launches that work prove
+            // nothing — which is exactly how it survived nine builds.
+            // file_cache_fallback is already On by default, but it is inert
+            // while file_cache has no directory to fall back *to*; giving it
+            // one turns the crash into a slightly slower cold start.
+            'opcache.file_cache' => $this->opcacheFileCache(),
+            'opcache.file_cache_fallback' => '1',
         ];
+    }
+
+    /**
+     * A writable directory for OPcache's file cache, created if missing.
+     *
+     * Under storage/ because that is the tree NativePHP repoints at a
+     * per-user writable location on a packaged install (it passes
+     * LARAVEL_STORAGE_PATH=%APPDATA%\orange-cafe\storage). The app
+     * directory itself has to be treated as read-only, and OPcache quietly
+     * ignores a file_cache path it cannot write — which would put us straight
+     * back to the crash this exists to prevent.
+     */
+    private function opcacheFileCache(): string
+    {
+        $path = storage_path('framework/opcache');
+
+        if (! is_dir($path)) {
+            @mkdir($path, 0755, true);
+        }
+
+        return $path;
     }
 }

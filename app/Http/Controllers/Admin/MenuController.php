@@ -10,6 +10,8 @@ use App\Http\Requests\Admin\UpdateMenuRequest;
 use App\Models\Menu;
 use App\Services\LanguageRegistry;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -17,8 +19,30 @@ class MenuController extends Controller
 {
     use FillsMissingTranslations;
 
-    public function __construct(protected LanguageRegistry $registry)
+    public function __construct(protected LanguageRegistry $registry) {}
+
+    /**
+     * Persists a drag-and-drop reorder of the menu list.
+     *
+     * sort_order here is the order menus are offered in, so it is the order
+     * a customer meets them in — "قائمة الإفطار" belongs above "قائمة
+     * العشاء" in the morning, and that is a judgement only someone looking
+     * at the list can make.
+     */
+    public function reorder(Request $request): RedirectResponse
     {
+        $order = $request->validate([
+            'order' => ['required', 'array'],
+            'order.*' => ['integer', 'exists:menus,id'],
+        ])['order'];
+
+        DB::transaction(function () use ($order) {
+            foreach ($order as $index => $id) {
+                Menu::whereKey($id)->update(['sort_order' => $index]);
+            }
+        });
+
+        return back();
     }
 
     public function index(): Response

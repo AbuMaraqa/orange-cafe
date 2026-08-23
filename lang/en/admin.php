@@ -29,6 +29,7 @@ return [
     ],
 
     'products' => [
+        'reorder_needs_full_list' => 'Reordering is not possible while filtered — clear the filters first.',
         'created' => 'Product created successfully.',
         'updated' => 'Product updated successfully.',
         'deleted' => 'Product deleted successfully.',
@@ -50,6 +51,12 @@ return [
         'created' => 'Service created successfully.',
         'updated' => 'Service updated successfully.',
         'deleted' => 'Service deleted successfully.',
+    ],
+
+    'service_charges' => [
+        'created' => 'Service charge created.',
+        'updated' => 'Service charge updated.',
+        'deleted' => 'Service charge deleted.',
     ],
 
     'settings' => [
@@ -75,8 +82,10 @@ return [
         'updated' => 'Menu updated successfully.',
         'deleted' => 'Menu deleted successfully.',
         'section_created' => 'Section added successfully.',
+        'section_updated' => 'Section updated successfully.',
         'section_deleted' => 'Section removed successfully.',
         'item_added' => 'Product added to the menu.',
+        'items_added' => ':count product(s) added to the menu.',
         'item_updated' => 'Menu item updated.',
         'item_removed' => 'Product removed from the menu.',
     ],
