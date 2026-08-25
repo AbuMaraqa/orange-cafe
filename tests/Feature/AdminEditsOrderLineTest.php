@@ -120,17 +120,28 @@ class AdminEditsOrderLineTest extends TestCase
     }
 
     /**
-     * After money has changed hands the recorded total has to keep matching
-     * what was collected.
+     * The correction an owner actually has to make: the one found after the
+     * table has left and the money is already counted.
+     *
+     * What was collected is not touched — it is a fact about what crossed
+     * the counter, and rewriting it to match a corrected bill would put
+     * money into the day's takings nobody handed over. The bill stays paid
+     * for the same reason: a correction to the record is not the table
+     * coming back.
      */
-    public function test_a_paid_order_is_refused(): void
+    public function test_an_admin_can_correct_a_paid_order(): void
     {
         $order = $this->orderWithLine(1000, 2);
         $order->update(['paid_at' => now(), 'amount_paid_cents' => 2000]);
 
-        $this->reprice($order, 500)->assertForbidden();
+        $this->reprice($order, 500)->assertRedirect();
 
-        $this->assertSame(1000, $order->items()->firstOrFail()->unit_price_cents);
+        $order->refresh();
+
+        $this->assertSame(500, $order->items()->firstOrFail()->unit_price_cents);
+        $this->assertSame(1000, $order->total_cents, 'the bill follows its lines');
+        $this->assertSame(2000, $order->amount_paid_cents, 'what was collected does not move');
+        $this->assertTrue($order->isPaid(), 'correcting the record does not reopen the bill');
     }
 
     public function test_a_waiter_cannot_reprice(): void

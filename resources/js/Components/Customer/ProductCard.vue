@@ -23,6 +23,20 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    // How many of this dish are already on the order.
+    //
+    // Zero on the customer menu, which has its own basket in front of the
+    // person filling it. The waiter is the one who needs it: they tap the
+    // same card several times in a row for a table ordering four of the
+    // same thing, and until now the only confirmation was a total ticking
+    // up in a panel on the other side of the screen. The search results
+    // have shown this count all along — the browse grid is where it was
+    // missing, which is the half of the screen used when the waiter does
+    // not already know the name of the dish.
+    inCart: {
+        type: Number,
+        default: 0,
+    },
 });
 
 const emit = defineEmits(['add']);
@@ -72,6 +86,17 @@ function formatPrice(cents) {
                     <NavIcon name="camera" class="h-7 w-7" />
                 </div>
             </div>
+
+            <!-- The opposite corner from the star, so a featured dish that
+                 is also on the order shows both. On the photo rather than
+                 down with the price, because this is the answer to "did
+                 that tap land?" and it has to be findable without reading
+                 the card. -->
+            <span
+                v-if="inCart > 0"
+                class="absolute -end-1.5 -top-1.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-bold text-white shadow ring-2 ring-white tabular-nums dark:ring-gray-900"
+                :style="{ backgroundColor: 'var(--brand-primary)' }"
+            >{{ inCart }}</span>
 
             <!-- On the photo's corner, over the image rather than beside it. -->
             <span

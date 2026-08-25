@@ -3,16 +3,28 @@
 <head>
     <meta charset="utf-8">
     <style>
-        body { font-size: 13px; color: #000; margin: 0; text-align: center; }
-        .order-ref { font-size: 20px; font-weight: bold; }
-        .meta-line { font-size: 12px; margin-top: 4px; }
+        /* Every size on this ticket was scaled down by a quarter at the
+           owner's request, to fit more of an order on less paper.
+
+           Scaled, not retyped: the sizes here are a hierarchy, not a set of
+           independent numbers, and each one is doing a job explained in the
+           comment beside it. A cook reads the dish name first, the section
+           only on a tie, and must not skip a note — so the note stays at
+           the dish name's size and the prep box stays as loud as it was.
+           Shrinking any one of them on its own is how a "no onions" starts
+           coming back as a returned plate. If this needs to shrink again,
+           scale the whole set again rather than picking at individual
+           lines. */
+        body { font-size: 10px; color: #000; margin: 0; text-align: center; }
+        .order-ref { font-size: 15px; font-weight: bold; }
+        .meta-line { font-size: 9px; margin-top: 4px; }
         .divider { border-top: 2px dashed #000; margin: 8px 0; }
-        .item { padding: 5px 0; font-size: 15px; font-weight: bold; }
-        .modifiers { color: #333; font-size: 12px; font-weight: normal; }
+        .item { padding: 5px 0; font-size: 11px; font-weight: bold; }
+        .modifiers { color: #333; font-size: 9px; font-weight: normal; }
         /* Quieter than the dish name and on the same line as it: the cook
            reads the dish first and the section only when two dishes share a
            name. */
-        .section { color: #555; font-size: 11px; font-weight: normal; }
+        .section { color: #555; font-size: 8.5px; font-weight: normal; }
         /* Boxed rather than grey small print: on a 72mm thermal ticket the
            cook is scanning for exactly this number to decide what to start
            first, and anything lighter than the dish name disappears under
@@ -21,7 +33,7 @@
             display: inline-block;
             border: 1pt solid #000;
             padding: 0 3pt;
-            font-size: 12px;
+            font-size: 9px;
             font-weight: bold;
         }
 
@@ -31,7 +43,7 @@
            and a missed "no onions" comes back as a returned plate.
            Boxed and bold instead, at the same weight as the dish itself. */
         .notes {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: bold;
             border: 2px solid #000;
             padding: 3px 4px;
@@ -43,15 +55,15 @@
            goes at the top where it is read before any cooking starts —
            inverted, because it is the one line that must not be missed. */
         .order-notes {
-            font-size: 14px;
+            font-size: 10.5px;
             font-weight: bold;
             background: #000;
             color: #fff;
             padding: 5px 4px;
             margin: 6px 0;
         }
-        .footer { margin-top: 8px; font-size: 10.5px; color: #4b5563; }
-        .fallback-notice { font-size: 12px; font-weight: bold; border: 2px solid #000; padding: 4px; margin-bottom: 6px; }
+        .footer { margin-top: 8px; font-size: 8px; color: #4b5563; }
+        .fallback-notice { font-size: 9px; font-weight: bold; border: 2px solid #000; padding: 4px; margin-bottom: 6px; }
     </style>
 </head>
 <body>

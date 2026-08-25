@@ -109,7 +109,18 @@ const isSearching = computed(() => search.value.trim().length > 0);
 const results = computed(() => (isSearching.value ? searchMenus(props.menus, search.value) : []));
 
 const searchBox = ref(null);
+const resultList = ref(null);
 const highlighted = ref(0);
+
+// Arrowing past the fold used to move a cursor the waiter could not see:
+// the list kept scrolling from the top while the highlight walked off the
+// bottom of the screen. `nearest` keeps the page still whenever the row is
+// already visible, so ordinary typing never jumps the view around.
+watch(highlighted, (index) => {
+    nextTick(() => {
+        resultList.value?.children?.[index]?.scrollIntoView({ block: 'nearest' });
+    });
+});
 
 // A new query invalidates the old cursor — leaving it where it was means
 // Enter adds whatever happens to sit at that position now.
@@ -151,12 +162,8 @@ function addHighlighted() {
     }
 }
 
-function matchesSearch(product) {
-    return matchesQuery(product, search.value);
-}
-
-function filterProducts(products) {
-    return products.filter(matchesSearch);
+function filterProducts(products, context) {
+    return products.filter((product) => matchesQuery(product, search.value, context));
 }
 
 const visibleCategories = computed(() =>
@@ -164,9 +171,12 @@ const visibleCategories = computed(() =>
         .filter((category) => activeCategory.value === 'all' || activeCategory.value === category.id)
         .map((category) => ({
             ...category,
-            products: filterProducts(category.products),
+            products: filterProducts(category.products, category.name),
             subcategories: category.subcategories
-                .map((sub) => ({ ...sub, products: filterProducts(sub.products) }))
+                // A subcategory carries its parent's name too, so typing the
+                // shelf ("مشروبات") keeps everything under it, not just the
+                // dishes whose own subcategory happens to repeat the word.
+                .map((sub) => ({ ...sub, products: filterProducts(sub.products, `${category.name} ${sub.name}`) }))
                 .filter((sub) => sub.products.length > 0),
         }))
         .filter((category) => category.products.length > 0 || category.subcategories.length > 0),
@@ -273,15 +283,15 @@ function submit() {
              a column too narrow to read, on the device the floor actually
              uses. Below xl it now stacks, and the order becomes a sheet
              pinned to the bottom of the screen. -->
-        <div class="grid gap-4 xl:grid-cols-12">
-            <div class="xl:col-span-8">
+        <div class="grid gap-4 lg:grid-cols-12">
+            <div class="lg:col-span-8">
                 <!-- One column only: the order panel is further down the
                      page, so this is the only thing telling the waiter what
                      they have added so far. -->
                 <button
                     v-if="cartCount > 0"
                     type="button"
-                    class="sticky top-2 z-20 mb-3 flex w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur xl:hidden dark:border-gray-700 dark:bg-gray-900/95"
+                    class="sticky top-2 z-20 mb-3 flex w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur lg:hidden dark:border-gray-700 dark:bg-gray-900/95"
                     @click="scrollToCart"
                 >
                     <span class="flex items-center gap-2">
@@ -363,7 +373,7 @@ function submit() {
                      every menu. Not grouped by category — grouping puts the
                      waiter back to scanning headings, which is the thing
                      they typed to avoid. -->
-                <div v-if="isSearching" class="space-y-1.5">
+                <div v-if="isSearching" ref="resultList" class="space-y-1.5 [&>button]:scroll-mt-16">
                     <p v-if="results.length === 0" class="mt-10 text-center text-sm text-gray-400">{{ $t('menu.no_results') }}</p>
 
                     <QuickAddResult
@@ -384,12 +394,13 @@ function submit() {
                 <section v-for="category in visibleCategories" :key="category.id" class="mb-6">
                     <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">{{ category.name }}</h2>
 
-                    <div v-if="category.products.length > 0" class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
+                    <div v-if="category.products.length > 0" class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2 2xl:grid-cols-3">
                         <ProductCard
                             v-for="product in category.products"
                             :key="product.id"
                             :product="product"
                             :currency-symbol="branding.currency_symbol"
+                            :in-cart="inCart(product)"
                             wrap-name
                             @add="onAddClick"
                         />
@@ -397,12 +408,13 @@ function submit() {
 
                     <div v-for="sub in category.subcategories" :key="sub.id" class="mt-4">
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-400">{{ sub.name }}</h3>
-                        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
+                        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2 2xl:grid-cols-3">
                             <ProductCard
                                 v-for="product in sub.products"
                                 :key="product.id"
                                 :product="product"
                                 :currency-symbol="branding.currency_symbol"
+                                :in-cart="inCart(product)"
                                 wrap-name
                                 @add="onAddClick"
                             />
@@ -420,8 +432,14 @@ function submit() {
                  right for very little — on a tablet it covered most of the
                  menu the moment a dish was added. A panel that cannot
                  overlap anything cannot be in the way. -->
-            <div class="xl:sticky xl:top-6 xl:col-span-4 xl:self-start">
-                <div ref="cartPanel" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <!-- Sticky from lg, where the two columns start: the order has
+                 to stay in view while the menu scrolls under it, otherwise
+                 adding a tenth dish means scrolling back up to check the
+                 ninth landed. It also caps its own height and scrolls
+                 inside, because a long order that outgrows the viewport
+                 makes `sticky` silently stop sticking. -->
+            <div class="lg:sticky lg:top-6 lg:col-span-4 lg:self-start">
+                <div ref="cartPanel" class="rounded-lg border border-gray-200 bg-white p-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:overscroll-contain dark:border-gray-800 dark:bg-gray-900">
                     <div class="mb-3 flex items-center justify-between gap-3">
                         <span class="font-semibold text-gray-900 dark:text-gray-100">{{ $t('menu.your_order') }}</span>
 

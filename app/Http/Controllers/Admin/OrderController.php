@@ -35,7 +35,12 @@ class OrderController extends Controller
             ->with('table', 'items.modifiers')
             ->whereBetween('created_at', $window)
             ->when($status, fn ($query) => $query->where('status', $status))
-            ->latest()
+            // Newest first, which is what the screen is read for. The id
+            // breaks ties: several orders can share a created_at to the
+            // second on a busy pass, and without it their order on the page
+            // is whatever the database felt like and changes between loads.
+            ->latest('created_at')
+            ->latest('id')
             ->get();
 
         $allForDay = $status ? Order::query()->whereBetween('created_at', $window)->get() : $orders;

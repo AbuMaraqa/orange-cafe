@@ -151,24 +151,30 @@ const isAdmin = computed(() => (page.props.auth?.roles ?? []).includes('admin'))
 /**
  * Whether the lines on this bill may still be changed.
  *
- * While the table is still running: not paid, and not a completed or
- * cancelled order, which is a record rather than a bill. The same rule
- * StaffOrderController enforces — the controls must not be offered where
- * they would answer 403, because the person pressing one believes the edit
- * is possible and only learns otherwise in front of a customer.
+ * An administrator, and nobody else — the same rule StaffOrderController
+ * enforces. The controls must not be offered where they would answer 403,
+ * because the person pressing one believes the edit is possible and only
+ * learns otherwise in front of a customer.
  *
  * Confirmation used to be the cutoff and no longer is: the corrections an
  * owner actually deals with turn up after the kitchen has the ticket. What
  * that costs is that the paper at the pass no longer has to agree with the
  * bill, so an edit past confirmation says so on screen (kitchenHasTicket)
  * and is logged server-side. Nothing else notices the disagreement.
+ *
+ * Payment is no longer a cutoff for an administrator either, matching
+ * StaffOrderController::abortUnlessLinesAreEditable(): an owner correcting a
+ * bill after the table has left is the case this whole feature exists for.
+ * The screen says so while they do it (billIsClosed).
  */
-const editable = computed(() =>
-    props.canEdit
-    && isAdmin.value
-    && !!order.value
-    && !order.value.is_paid
-    && ACTIVE_STATUSES.includes(order.value.status)
+const editable = computed(() => props.canEdit && isAdmin.value && !!order.value);
+
+// A bill that is already settled or filed away. Editing it is allowed for an
+// administrator and changes nothing about what was collected, so the screen
+// has to say which of the two numbers is moving.
+const billIsClosed = computed(() =>
+    !!order.value
+    && (order.value.is_paid || ! ACTIVE_STATUSES.includes(order.value.status))
 );
 
 // Editing from here on rewrites a bill whose ticket is already being cooked
@@ -728,6 +734,18 @@ const tileClasses = computed(() => {
                     >
                         <NavIcon name="note" class="h-4 w-4 shrink-0" />
                         <span>{{ t('staff.edit_bill_kitchen_warning') }}</span>
+                    </p>
+
+                    <!-- The bill is over and the money is already counted.
+                         Only the recorded total moves from here; what was
+                         collected does not, and the difference is the thing
+                         the person editing has to know they are creating. -->
+                    <p
+                        v-if="billIsClosed"
+                        class="flex gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-800 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300"
+                    >
+                        <NavIcon name="note" class="h-4 w-4 shrink-0" />
+                        <span>{{ t('staff.edit_bill_closed_warning') }}</span>
                     </p>
 
                     <div v-for="item in order.items" :key="item.id" class="rounded-lg border border-gray-200 p-2.5 dark:border-gray-800">

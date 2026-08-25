@@ -34,10 +34,10 @@ use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StaffOrderController;
 use App\Http\Controllers\StorageFileController;
-use App\Http\Controllers\WebManifestController;
 use App\Http\Controllers\WaiterCallController;
 use App\Http\Controllers\WaiterController;
 use App\Http\Controllers\WaiterOrderController;
+use App\Http\Controllers\WebManifestController;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -123,10 +123,35 @@ Route::middleware('local-only')
  * don't — points at the developer's machine. Where the symlink does exist
  * (Laragon, nginx) the web server answers the file before Laravel is
  * reached, so this route simply never runs there.
+ *
+ * Session, CSRF and Inertia middleware are stripped for the same reason the
+ * control panel above strips them, but at the opposite end of the problem:
+ * not fragility, volume. On the packaged app this route is the *only* thing
+ * serving menu photos, and a customer opening the menu for the first time
+ * fetches every one of them — on a server that answers one request at a
+ * time. Sending each of those through StartSession (a session read and a
+ * write-back per photo), CSRF and HandleInertiaRequests — which resolves
+ * the shared props for a page that is not being rendered — multiplies the
+ * cost of the one thing a phone does most of, to hand a file on disk a
+ * session it never looks at. The controller reads `path` and the
+ * If-None-Match header and nothing else.
+ *
+ * QR customers arrive as new devices with an empty browser cache, so this
+ * cold path is the normal case here, not the exception the ETag covers.
  */
-Route::get('/storage/{path}', StorageFileController::class)
-    ->where('path', '.*')
-    ->name('storage.serve');
+Route::withoutMiddleware([
+    EncryptCookies::class,
+    AddQueuedCookiesToResponse::class,
+    StartSession::class,
+    ShareErrorsFromSession::class,
+    VerifyCsrfToken::class,
+    HandleInertiaRequests::class,
+])
+    ->group(function () {
+        Route::get('/storage/{path}', StorageFileController::class)
+            ->where('path', '.*')
+            ->name('storage.serve');
+    });
 
 /*
  * The web app manifest, deliberately outside the locale group.

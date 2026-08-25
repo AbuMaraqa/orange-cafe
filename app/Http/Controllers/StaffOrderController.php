@@ -181,14 +181,57 @@ class StaffOrderController extends Controller
         );
     }
 
-    public function removeItem(Order $order, OrderItem $item): RedirectResponse
+    /**
+     * The gate on the two line-edit routes, both of them role:admin-only.
+     *
+     * An administrator is let through on a bill that is already over — paid,
+     * completed or cancelled. That is deliberate, and it is why this sits
+     * next to abortIfTheOrderIsClosed() instead of replacing it: the
+     * corrections an owner actually has to make are the ones found after the
+     * table has left, and until now the only thing the app offered them was
+     * to leave the day's figures wrong.
+     *
+     * What it costs is worth writing down. A bill edited after payment no
+     * longer has to agree with the money that was collected — what was
+     * collected is a separate fact (amount_paid_cents) and is never rewritten
+     * here, so a total lowered afterwards reads as an overpayment and one
+     * raised reads as still owing. Neither reopens the bill: paid_at stays
+     * put, because correcting the record is not the table coming back. Every
+     * edit made after the close is logged with the administrator who made it.
+     *
+     * Nobody else gets this. The floor and the till keep the old cutoff, so a
+     * mistake at the counter still cannot rewrite a settled bill.
+     */
+    private function abortUnlessLinesAreEditable(Request $request, Order $order): void
     {
-        abort_if($item->order_id !== $order->id, 404);
+        if ($request->user()?->hasRole('admin')) {
+            return;
+        }
+
         abort_if($order->isPaid(), 403);
         $this->abortIfTheOrderIsClosed($order);
+    }
+
+    public function removeItem(Request $request, Order $order, OrderItem $item): RedirectResponse
+    {
+        abort_if($item->order_id !== $order->id, 404);
+        $this->abortUnlessLinesAreEditable($request, $order);
+
+        $afterClose = $order->isPaid() || ! $order->isActive();
 
         $item->delete();
         $order->refresh()->recalculateTotal();
+
+        if ($afterClose) {
+            Log::info('Line removed from a closed order by an administrator.', [
+                'order' => $order->reference,
+                'item' => $item->id,
+                'product' => $item->product_name,
+                'collected' => $order->collectedCents(),
+                'total_now' => $order->total_cents,
+                'user' => $request->user()?->id,
+            ]);
+        }
 
         $this->safeBroadcast(new OrderStatusUpdated($order->fresh()), toOthers: true);
 
@@ -205,9 +248,9 @@ class StaffOrderController extends Controller
      * loses what the customer actually ate and what the kitchen actually
      * cooked.
      *
-     * Refused once the order is paid, the same cutoff removeItem() and
-     * moveTable() use: after money has changed hands the recorded total has
-     * to keep matching what was collected.
+     * Open to an administrator even after the bill is closed — see
+     * abortUnlessLinesAreEditable() for what that allows and what it costs.
+     * Everyone else stops at payment, the same cutoff moveTable() uses.
      *
      * The order total is recomputed from its lines rather than adjusted by
      * the difference. Money is the one place where a running balance that
@@ -217,8 +260,7 @@ class StaffOrderController extends Controller
     public function updateItem(Request $request, Order $order, OrderItem $item): RedirectResponse
     {
         abort_if($item->order_id !== $order->id, 404);
-        abort_if($order->isPaid(), 403);
-        $this->abortIfTheOrderIsClosed($order);
+        $this->abortUnlessLinesAreEditable($request, $order);
 
         $validated = $request->validate([
             // In cents, and zero is allowed on purpose: taking an item down
@@ -248,6 +290,12 @@ class StaffOrderController extends Controller
             'from' => $previous,
             'to' => ['price' => $item->unit_price_cents, 'quantity' => $item->quantity],
             'user' => $request->user()?->id,
+            // The edits worth finding again later are the ones made after the
+            // bill was over, so the line says so itself rather than leaving it
+            // to be inferred from whatever state the order is in when read.
+            'after_close' => $order->isPaid() || ! $order->isActive(),
+            'collected' => $order->collectedCents(),
+            'total_now' => $order->fresh()->total_cents,
         ]);
 
         $this->safeBroadcast(new OrderStatusUpdated($order->fresh()), toOthers: true);

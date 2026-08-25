@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import NavIcon from '@/Components/NavIcon.vue';
 import { useOrderStatus } from '@/composables/useOrderStatus';
@@ -58,16 +58,97 @@ const currentStep = computed(() => STEPS.indexOf(props.order.status));
  * not websockets: the live channel is private and a customer has no login to
  * authorise against it, and a ticket that updates a few seconds late is
  * perfectly fine — nobody is waiting on the screen, they are waiting on food.
+ *
+ * What that costs is the thing to watch. This screen is open on every phone
+ * at every occupied table at once, and each tick is a full Laravel request
+ * against a server that answers one at a time — `php -S` takes no second
+ * worker on Windows, where PHP_CLI_SERVER_WORKERS needs a fork() it does not
+ * have. A flat 10s tick from thirty phones is three requests a second of
+ * permanent background load, competing with the waiter's tablet, the kitchen
+ * screen and the receipt the cashier is standing there waiting for. Three
+ * rules cut that to a fraction of itself without the customer noticing:
+ *
+ * 1. A hidden tab does not poll at all. Phones spend most of a sitting in a
+ *    pocket or behind another app, and nobody reads a screen they cannot
+ *    see. Returning to the tab refreshes immediately, so it shows fresher
+ *    data than the old fixed tick ever did.
+ * 2. Once the order reaches a state the kitchen no longer moves it out of,
+ *    the tick backs off. It does not stop: someone else at the table can
+ *    still add a round onto the same ticket, and that has to appear.
+ * 3. The active tick is 15s rather than 10s. This status changes when a
+ *    human presses a button minutes apart, so five seconds of extra latency
+ *    is invisible against it — and it is a third of the requests.
  */
+const POLL_ACTIVE_MS = 15000;
+const POLL_SETTLED_MS = 60000;
+const MOVING_STATUSES = ['pending', 'confirmed'];
+
 let timer = null;
 
+/**
+ * The status the running timer's interval was chosen for, so an order moving
+ * from 'confirmed' to 'ready' re-arms at the slower rate instead of staying
+ * on the fast one for the rest of the sitting. Null whenever no timer runs.
+ */
+let pollingForStatus = null;
+
+function refresh() {
+    router.reload({ only: ['order'], preserveScroll: true, preserveState: true });
+}
+
+function stopPolling() {
+    if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+    }
+
+    pollingForStatus = null;
+}
+
+function syncPolling() {
+    if (document.hidden) {
+        stopPolling();
+
+        return;
+    }
+
+    // Already ticking at the rate this status calls for.
+    if (timer !== null && pollingForStatus === props.order.status) {
+        return;
+    }
+
+    stopPolling();
+    pollingForStatus = props.order.status;
+    timer = setInterval(
+        refresh,
+        MOVING_STATUSES.includes(props.order.status) ? POLL_ACTIVE_MS : POLL_SETTLED_MS,
+    );
+}
+
+function onVisibilityChange() {
+    if (document.hidden) {
+        stopPolling();
+
+        return;
+    }
+
+    // Whatever happened while the tab was away is shown now, not one tick
+    // from now — this is the moment the customer is actually looking at it.
+    refresh();
+    syncPolling();
+}
+
+watch(() => props.order.status, syncPolling);
+
 onMounted(() => {
-    timer = setInterval(() => {
-        router.reload({ only: ['order'], preserveScroll: true, preserveState: true });
-    }, 10000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    syncPolling();
 });
 
-onBeforeUnmount(() => clearInterval(timer));
+onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    stopPolling();
+});
 </script>
 
 <template>

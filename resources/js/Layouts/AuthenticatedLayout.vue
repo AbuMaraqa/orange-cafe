@@ -260,11 +260,27 @@ function isActive(routeName) {
             <PendingOrdersDock />
 
 
-            <!-- The belt to min-w-0's braces. Anything that still turns out
-                 wider than the column — a wide table, a long code block —
-                 scrolls inside this element instead of dragging the whole
-                 page sideways with it. -->
-            <main class="min-w-0 flex-1 overflow-x-auto p-4 sm:p-6">
+            <!-- No overflow rule here, deliberately, and it has to stay that
+                 way. `overflow-x: auto` used to be the belt to min-w-0's
+                 braces — anything wider than the column scrolled inside this
+                 element rather than dragging the page sideways.
+
+                 What it also did was silently kill every `position: sticky`
+                 on every screen. Setting one axis to something other than
+                 `visible` makes the other axis compute to `auto`, which
+                 turns this element into the scroll container for everything
+                 inside it. A sticky child then sticks relative to *this*
+                 box — and this box is `flex-1` inside a `min-h-screen`
+                 column, so it grows to fit its content and never scrolls.
+                 Nothing was ever offset from anything, so nothing ever
+                 stuck: the order panel on the new-order screen scrolled
+                 away with the menu, and so did the floor plan's headers.
+
+                 min-w-0 above already stops the column from being pushed
+                 past the viewport, and the elements that are genuinely too
+                 wide — the admin tables, the status filter strips — carry
+                 their own overflow-x-auto. That is where it belongs. -->
+            <main class="min-w-0 flex-1 p-4 sm:p-6">
                 <slot />
             </main>
         </div>

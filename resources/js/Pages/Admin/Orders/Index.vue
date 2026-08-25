@@ -1,9 +1,10 @@
 <script setup>
 import NavIcon from '@/Components/NavIcon.vue';
+import { ACTIVE_STATUSES } from '@/constants/orderStatus';
 import { useOrderStatus } from '@/composables/useOrderStatus';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const props = defineProps({
@@ -54,32 +55,95 @@ function hasNotes(order) {
 
 const expandedId = ref(null);
 
-// Which line is being repriced, and the value being typed. Prices are held
+// Which line is being edited, and the values being typed. Prices are held
 // in cents everywhere else; the box shows currency units because that is
 // what an administrator is reading off a bill.
 const editingItemId = ref(null);
 const editingPrice = ref(0);
+const editingQuantity = ref(1);
 
-function startEditingPrice(item) {
-    editingItemId.value = item.id;
-    editingPrice.value = Number((item.unit_price_cents / 100).toFixed(2));
+// A bill nobody can add to any more: paid, or filed away as completed or
+// cancelled. This screen still lets an administrator correct it — that is
+// the point of the screen — but it has to say which number is moving,
+// because what was collected is recorded separately and stays put.
+function isClosed(order) {
+    return order.is_paid || !ACTIVE_STATUSES.includes(order.status);
 }
 
-function saveItemPrice(order, item) {
-    const cents = Math.round(Number(editingPrice.value) * 100);
+function startEditingItem(item) {
+    editingItemId.value = item.id;
+    editingPrice.value = Number((item.unit_price_cents / 100).toFixed(2));
+    editingQuantity.value = item.quantity;
+}
 
-    if (!Number.isFinite(cents) || cents < 0) {
+// What the line will come to once saved. Shown while the boxes are open,
+// because a quantity typed into a box and a total printed two columns away
+// look unrelated: raising the quantity and watching the price sit still
+// reads as the edit having been ignored.
+const editingSubtotalCents = computed(() => {
+    const cents = Math.round(Number(editingPrice.value) * 100);
+    const quantity = Math.round(Number(editingQuantity.value));
+
+    if (!Number.isFinite(cents) || !Number.isFinite(quantity)) {
+        return 0;
+    }
+
+    return Math.max(0, cents) * Math.max(1, quantity);
+});
+
+function saveItem(order, item) {
+    const cents = Math.round(Number(editingPrice.value) * 100);
+    const quantity = Math.round(Number(editingQuantity.value));
+
+    // Zero is a price (a comped dish) but not a quantity — a line nobody is
+    // having is a removal, which has its own button and its own trail.
+    //
+    // Said out loud rather than returned from silently: a button that does
+    // nothing at all is indistinguishable from one that saved and lost the
+    // change, and the person pressing it is correcting money.
+    if (!Number.isFinite(cents) || cents < 0 || !Number.isFinite(quantity) || quantity < 1) {
+        window.alert(t('staff.edit_bill_invalid'));
+
         return;
     }
 
     router.patch(
         route('orders.items.update', [order.id, item.id]),
-        { unit_price_cents: cents },
+        { unit_price_cents: cents, quantity },
         {
             preserveScroll: true,
+            // Without this the page component remounts on the redirect back
+            // and expandedId resets, so a successful save closed the panel
+            // the administrator was working in — which looks far more like a
+            // failure than like the edit it actually was.
+            preserveState: true,
             onSuccess: () => { editingItemId.value = null; },
+            onError: (errors) => { window.alert(Object.values(errors).join('\n')); },
         }
     );
+}
+
+function removeItem(order, item) {
+    if (!window.confirm(`${item.product_name} — ${t('common.are_you_sure')}`)) {
+        return;
+    }
+
+    router.delete(route('orders.items.destroy', [order.id, item.id]), {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => { editingItemId.value = null; },
+    });
+}
+
+// Sends the bill to the till's receipt printer. The same action the cashier
+// screen offers, put here because this list is where a corrected bill is
+// finished — and a bill corrected after the fact is exactly the one whose
+// old paper is now wrong and has to be reprinted.
+function printForCashier(order) {
+    router.post(route('orders.print-cashier', order.id), {}, {
+        preserveScroll: true,
+        preserveState: true,
+    });
 }
 
 function toggleExpanded(order) {
@@ -180,13 +244,36 @@ function toggleExpanded(order) {
                                 {{ formatPrice(order.total_cents) }}
                             </td>
                             <td class="whitespace-nowrap px-4 py-3 text-end text-sm" @click.stop>
-                                <a :href="route('orders.invoice', order.id)" target="_blank" rel="noopener" class="text-gray-500 underline hover:text-gray-800 dark:hover:text-gray-200">
-                                    {{ t('staff.invoice') }}
-                                </a>
+                                <div class="flex items-center justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center gap-1 text-gray-500 underline hover:text-gray-800 dark:hover:text-gray-200"
+                                        @click="printForCashier(order)"
+                                    >
+                                        <NavIcon name="receipt" class="h-4 w-4" />
+                                        {{ t('staff.print_cashier') }}
+                                    </button>
+                                    <a :href="route('orders.invoice', order.id)" target="_blank" rel="noopener" class="text-gray-500 underline hover:text-gray-800 dark:hover:text-gray-200">
+                                        {{ t('staff.invoice') }}
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         <tr v-if="expandedId === order.id" class="bg-gray-50 dark:bg-gray-800/40">
                             <td colspan="7" class="px-4 py-3">
+                                <!-- This screen is the one place a bill can
+                                     be corrected after it is over, so it is
+                                     also the only place that can warn about
+                                     what that creates: the recorded total
+                                     moves, the collected amount does not. -->
+                                <p
+                                    v-if="isClosed(order)"
+                                    class="mb-2 flex gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-800 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300"
+                                >
+                                    <NavIcon name="note" class="h-4 w-4 shrink-0" />
+                                    <span>{{ t('staff.edit_bill_closed_warning') }}</span>
+                                </p>
+
                                 <ul class="space-y-1.5 text-sm text-gray-700 dark:text-gray-300">
                                     <li v-for="item in order.items" :key="item.id" class="flex flex-wrap items-start justify-between gap-2">
                                         <div class="min-w-0">
@@ -198,25 +285,45 @@ function toggleExpanded(order) {
                                             </div>
                                         </div>
 
-                                        <!-- Editing is offered only while the bill is still open: once
-                                             money has been taken the recorded total has to keep matching
-                                             what was collected. -->
+                                        <!-- Offered whatever state the bill is in. Only an
+                                             administrator reaches this screen, and correcting a
+                                             bill after the table has left is the reason it is
+                                             here — see StaffOrderController. The warning above
+                                             carries what that costs. -->
                                         <div class="flex shrink-0 items-center gap-2">
                                             <template v-if="editingItemId === item.id">
+                                                <input
+                                                    v-model.number="editingQuantity"
+                                                    type="number"
+                                                    step="1"
+                                                    min="1"
+                                                    max="999"
+                                                    :aria-label="t('staff.quantity')"
+                                                    class="w-16 rounded-md border-gray-300 py-1 text-sm tabular-nums dark:border-gray-700 dark:bg-gray-950"
+                                                    @keyup.enter="saveItem(order, item)"
+                                                    @keyup.esc="editingItemId = null"
+                                                />
                                                 <input
                                                     v-model.number="editingPrice"
                                                     type="number"
                                                     step="0.01"
                                                     min="0"
+                                                    :aria-label="t('staff.unit_price')"
                                                     class="w-24 rounded-md border-gray-300 py-1 text-sm tabular-nums dark:border-gray-700 dark:bg-gray-950"
-                                                    @keyup.enter="saveItemPrice(order, item)"
+                                                    @keyup.enter="saveItem(order, item)"
                                                     @keyup.esc="editingItemId = null"
                                                 />
-                                                <button type="button" class="text-xs font-medium text-green-600" @click="saveItemPrice(order, item)">
+                                                <span class="w-20 text-end text-sm font-medium tabular-nums" :class="editingSubtotalCents === item.subtotal_cents ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'">
+                                                    {{ formatPrice(editingSubtotalCents) }}
+                                                </span>
+                                                <button type="button" class="text-xs font-medium text-green-600" @click="saveItem(order, item)">
                                                     {{ $t('common.save') }}
                                                 </button>
                                                 <button type="button" class="text-xs text-gray-400" @click="editingItemId = null">
                                                     {{ $t('common.cancel') }}
+                                                </button>
+                                                <button type="button" class="text-xs font-medium text-red-600" @click="removeItem(order, item)">
+                                                    {{ $t('common.delete') }}
                                                 </button>
                                             </template>
 
@@ -226,11 +333,10 @@ function toggleExpanded(order) {
                                                 </span>
                                                 <span class="w-20 text-end text-sm font-medium tabular-nums">{{ formatPrice(item.subtotal_cents) }}</span>
                                                 <button
-                                                    v-if="!order.is_paid"
                                                     type="button"
                                                     class="text-xs font-medium"
                                                     style="color: var(--brand-primary)"
-                                                    @click="startEditingPrice(item)"
+                                                    @click="startEditingItem(item)"
                                                 >
                                                     {{ $t('common.edit') }}
                                                 </button>
@@ -238,6 +344,17 @@ function toggleExpanded(order) {
                                         </div>
                                     </li>
                                 </ul>
+                                <!-- The two numbers the warning above is about,
+                                     side by side, so a correction that leaves
+                                     them apart is visible rather than inferred. -->
+                                <div
+                                    v-if="order.is_paid && order.amount_paid_cents !== null && order.amount_paid_cents !== order.total_cents"
+                                    class="mt-2 flex justify-end gap-4 border-t border-gray-200 pt-2 text-xs tabular-nums text-gray-500 dark:border-gray-700"
+                                >
+                                    <span>{{ t('staff.total') }}: {{ formatPrice(order.total_cents) }}</span>
+                                    <span>{{ t('staff.collected') }}: {{ formatPrice(order.amount_paid_cents) }}</span>
+                                </div>
+
                                 <div v-if="order.notes" class="mt-2 flex items-start gap-1.5 border-t border-gray-200 pt-2 text-sm italic text-amber-700 dark:border-gray-700 dark:text-amber-500">
                                     <NavIcon name="note" class="mt-0.5 h-4 w-4 shrink-0" />
                                     {{ order.notes }}

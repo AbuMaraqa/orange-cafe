@@ -193,15 +193,15 @@ class WaiterConfirmsButDoesNotEditTest extends TestCase
     }
 
     /**
-     * A finished order is a record, not a bill.
+     * A finished order is a record — and the owner is the one person allowed
+     * to correct the record.
      *
      * Cancelled or completed, it is what the day's figures are built from,
-     * and the till total for a paid one has to keep matching what was
-     * actually collected. Editing stops at the edge of the active flow —
-     * config('orders.active_statuses'), the same list the floor plan uses to
-     * decide a table is still occupied.
+     * which is exactly why a wrong one has to be fixable: the alternative
+     * the app used to offer was to leave the figures wrong. It is the
+     * administrator's alone, from the orders list, and it is logged.
      */
-    public function test_nobody_edits_a_line_on_a_closed_order(): void
+    public function test_an_admin_edits_a_line_on_a_closed_order(): void
     {
         $table = $this->table();
         $order = $this->customerOrder($table);
@@ -214,15 +214,36 @@ class WaiterConfirmsButDoesNotEditTest extends TestCase
 
             $this->actingAs($admin)
                 ->patch(route('orders.items.update', [$order->id, $line->id]), ['quantity' => 9])
-                ->assertForbidden();
+                ->assertRedirect();
 
-            $this->actingAs($admin)
-                ->delete(route('orders.items.destroy', [$order->id, $line->id]))
-                ->assertForbidden();
+            $this->assertSame(9, $line->refresh()->quantity);
         }
 
+        $this->actingAs($admin)
+            ->delete(route('orders.items.destroy', [$order->id, $line->id]))
+            ->assertRedirect();
+
+        $this->assertSame(0, $order->refresh()->items()->count());
+    }
+
+    /**
+     * The floor keeps the old cutoff. A closed bill is out of reach at the
+     * counter, where the pressure to rewrite one is highest and the person
+     * doing it is standing in front of the customer who asked.
+     */
+    public function test_a_waiter_still_cannot_edit_a_closed_order(): void
+    {
+        $table = $this->table();
+        $order = $this->customerOrder($table);
+        $line = $order->items()->firstOrFail();
+
+        $order->update(['status' => 'completed']);
+
+        $this->actingAs($this->user('waiter'))
+            ->patch(route('orders.items.update', [$order->id, $line->id]), ['quantity' => 9])
+            ->assertForbidden();
+
         $this->assertSame(2, $line->refresh()->quantity, 'a refused edit must not have happened anyway');
-        $this->assertSame(1, $order->refresh()->items()->count());
     }
 
     /**
