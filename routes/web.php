@@ -356,7 +356,16 @@ Route::group([
         ->patch('orders/{order}/status', [StaffOrderController::class, 'updateStatus'])
         ->name('orders.status');
 
-    Route::middleware(['auth', 'role:waiter|admin'])
+    // The cashier belongs here for the same reason the waiter does: the till
+    // is a place a pending order gets accepted from. It was left out, and the
+    // Cashier screen renders TableBillModal — which posts here — so accepting
+    // a round from the bill answered 403 and did nothing visible at all.
+    //
+    // Confirming is not the same action as advancing a status, and only this
+    // one prints: confirm() queues the kitchen ticket and folds the round
+    // into the table's running bill. Reaching 'confirmed' through
+    // orders.status instead sets the word and stops there.
+    Route::middleware(['auth', 'role:waiter|cashier|admin'])
         ->post('orders/{order}/confirm', [StaffOrderController::class, 'confirm'])
         ->name('orders.confirm');
 

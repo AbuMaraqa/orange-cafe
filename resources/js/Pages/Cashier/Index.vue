@@ -104,7 +104,28 @@ function statusLabel(status) {
     return next ? t(`orders.statuses.${next}`) : null;
 }
 
+/**
+ * Accepting a pending order is not the same request as moving an accepted
+ * one along, even though it is the same button.
+ *
+ * 'pending' -> 'confirmed' is the moment the order becomes real: the kitchen
+ * ticket is queued and the round is folded into the table's running bill.
+ * Both of those live in orders.confirm. orders.status only writes the word,
+ * so reaching 'confirmed' through it left the till showing an accepted order
+ * that the kitchen had never been told about and that was still sitting on a
+ * ticket of its own — the split bill that lets food go out unpaid.
+ *
+ * The waiter screen always posted to orders.confirm; the till was advancing
+ * the status instead, which is why the same button printed there and not
+ * here. Every step after this one is a plain status move and stays that way.
+ */
 function advance(order) {
+    if (order.status === 'pending') {
+        router.post(route('orders.confirm', order.id), {}, { preserveScroll: true });
+
+        return;
+    }
+
     const next = nextStatus(order.status);
     if (!next) return;
 
