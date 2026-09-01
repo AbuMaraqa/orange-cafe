@@ -57,12 +57,18 @@ class StaffOrderController extends Controller
         $handedOver = $data['amount_paid_cents'] ?? $order->total_cents;
         $partial = (bool) ($data['partial'] ?? false);
 
+        $previouslyPaid = $order->paidSoFarCents();
+
         // Payments accumulate. A table paying in instalments hands over
         // money more than once, and each amount is a fact about this bill
         // rather than a replacement for the last one — overwriting would
         // erase every payment but the final one from the day's takings.
+        //
+        // A final settle is stated as a total, not as an instalment: the till
+        // says "this bill has now taken 100", which is why it is assigned
+        // rather than added.
         $paidSoFar = $partial
-            ? $order->paidSoFarCents() + $handedOver
+            ? $previouslyPaid + $handedOver
             : $handedOver;
 
         // A bill closes when it is covered, not when somebody says so. A
@@ -71,6 +77,11 @@ class StaffOrderController extends Controller
         // the whole point of taking it.
         $settled = ! $partial || $paidSoFar >= $order->total_cents;
 
+        // The payment timeline is not written here. OrderObserver records it
+        // off this very change — what changed hands is the difference between
+        // the old running total and the new one — so that the importer and
+        // the seeders, which never come through the till, cannot produce a
+        // paid bill with no timeline behind it.
         $order->update([
             'paid_at' => $settled ? now() : null,
             'paid_by' => $settled ? $request->user()->id : null,

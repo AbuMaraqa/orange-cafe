@@ -2,10 +2,17 @@
 
 namespace App\Models;
 
+use App\Observers\OrderObserver;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+// Records a row on the payment timeline whenever the bill's running total
+// moves — including from the legacy importer and from seeders, neither of
+// which goes near the till. See OrderObserver.
+#[ObservedBy(OrderObserver::class)]
 class Order extends Model
 {
     protected $fillable = [
@@ -70,6 +77,48 @@ class Order extends Model
     public function printJobs(): HasMany
     {
         return $this->hasMany(PrintJob::class);
+    }
+
+    /**
+     * Each handover of money against this bill, oldest first.
+     *
+     * `amount_paid_cents` says how much this bill has taken; this says when
+     * each part of it arrived, which is the only question the cash box can
+     * answer a running total with. See the order_payments migration.
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(OrderPayment::class)->orderBy('received_at')->orderBy('id');
+    }
+
+    /**
+     * Records money crossing the counter, and moves the bill's running total
+     * with it.
+     *
+     * The two are written together, here, for the same reason an expense and
+     * its cash movement are written together in ExpenseRecorder: they are one
+     * fact stored twice, and the day they disagree is the day the drawer
+     * stops reconciling with no way to tell which half is wrong.
+     *
+     * A zero delta writes nothing. Re-saving a bill at the amount it already
+     * shows is not a payment, and a row worth nothing on the timeline is a
+     * line on the cash box's movement list that a manager has to work out is
+     * meaningless.
+     *
+     * @param  int  $deltaCents  what changed hands now — negative when a bill
+     *                           is corrected downwards and money goes back
+     */
+    public function recordPayment(int $deltaCents, ?int $userId = null, ?Carbon $at = null): ?OrderPayment
+    {
+        if ($deltaCents === 0) {
+            return null;
+        }
+
+        return $this->payments()->create([
+            'amount_cents' => $deltaCents,
+            'received_at' => $at ?? now(),
+            'received_by' => $userId,
+        ]);
     }
 
     public function createdBy(): BelongsTo
