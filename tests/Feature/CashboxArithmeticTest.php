@@ -493,6 +493,15 @@ class CashboxArithmeticTest extends TestCase
             'created_at' => now()->subDay(),
         ])->save();
 
+        // And the handover with it. The drawer is fed by `order_payments`,
+        // which records when money arrived and deliberately does not chase
+        // later edits to `paid_at` — an instalment taken on Tuesday stays on
+        // Tuesday however the bill is settled afterwards. Nothing in the app
+        // backdates a settled bill (markPaid always stamps now()), so this is
+        // fixture-building: moving the order without moving its payment
+        // describes a night that never happened.
+        $order->payments()->update(['received_at' => now()->subDay()]);
+
         app(DayCloser::class)->close($yesterday, countedCents: 95000, notes: null, by: $admin);
 
         $this->assertSame(95000, $this->cashbox()->openingCents($this->today));
