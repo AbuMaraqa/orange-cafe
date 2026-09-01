@@ -7,6 +7,7 @@ use App\Models\CashMovement;
 use App\Models\DailyClosing;
 use App\Models\Expense;
 use App\Models\Order;
+use App\Models\OrderPayment;
 use Illuminate\Support\Carbon;
 
 /**
@@ -87,17 +88,31 @@ class Cashbox
     }
 
     /**
-     * What was in the drawer when the day started: the previous closing's
-     * *counted* figure, not its expected one.
+     * What was in the drawer when this day started.
      *
-     * Carrying the expected figure forward would bury a discrepancy instead
-     * of surfacing it — a till 10 short on Monday would start Tuesday
-     * claiming the 10 was there, and every following day would inherit the
-     * lie. Counted means tomorrow starts from the money that is actually in
-     * the drawer.
+     * Two parts, and both are needed:
      *
-     * The most recent closing on or before the day is used, so a day nobody
-     * closed does not reset the float to zero.
+     *  1. the last signed-off count — the *counted* figure, never the
+     *     expected one. Carrying the expected figure forward would bury a
+     *     discrepancy instead of surfacing it: a till 10 short on Monday
+     *     would start Tuesday claiming the 10 was there, and every following
+     *     day would inherit the lie. Counted means tomorrow starts from the
+     *     money that is actually in the drawer.
+     *
+     *  2. everything that moved through the drawer on the days in between.
+     *
+     * The second part used to be missing, and it is the reason a café that
+     * forgot to close one night was told it had a surplus — every night after
+     * it, until somebody closed on a real count and absorbed the difference.
+     * Monday counted 50, Tuesday took 30 and nobody signed it off, and
+     * Wednesday opened claiming 50 while the drawer held 80. Nothing about
+     * that is a rounding difference; it is a whole night's takings, reported
+     * as a discrepancy in the till rather than as the missing close it is.
+     *
+     * With no closing anywhere behind it the float is the whole history,
+     * which is the same statement with nothing to subtract: an install where
+     * nobody has ever closed a day has a drawer holding everything it ever
+     * took, less everything it ever paid out.
      */
     public function openingCents(string $date): int
     {
@@ -108,13 +123,103 @@ class Cashbox
             ->orderByDesc('business_date')
             ->first();
 
-        return $previous?->counted_cents ?? 0;
+        $counted = $previous?->counted_cents ?? 0;
+
+        // The days the count does not already account for: everything after
+        // the night that was signed off, up to the night before this one.
+        $from = $previous
+            ? Carbon::parse($previous->business_date)->addDay()->toDateString()
+            : null;
+        $to = Carbon::parse($date)->subDay()->toDateString();
+
+        // Closed yesterday and asking about today — the usual case, and there
+        // is nothing in between to carry.
+        if ($from !== null && $from > $to) {
+            return $counted;
+        }
+
+        return $counted + $this->netMovementBetween($from, $to);
     }
 
-    /** Taken from customers: what the till actually received. */
+    /**
+     * What the drawer gained or lost across a run of days, by the same terms
+     * the daily balance is built from.
+     *
+     * Deliberately assembled out of the same four figures rather than by
+     * looping over day() — a day at a time would re-run openingCents() for
+     * each one, which is what calls this.
+     *
+     * @param  string|null  $from  null means "from the beginning", which is
+     *                             the case where no day has ever been closed
+     */
+    private function netMovementBetween(?string $from, string $to): int
+    {
+        $collected = (int) OrderPayment::query()
+            ->when($from !== null, fn ($q) => $q->where('received_at', '>=', $this->businessDay->startOf($from)))
+            ->where('received_at', '<=', $this->businessDay->endOf($to))
+            ->whereHas('order', fn ($query) => $query->where('status', '!=', 'cancelled'))
+            ->sum('amount_cents');
+
+        // Expenses, absences and hand-entered movements carry a date somebody
+        // typed rather than a moment to be classified, so they are bounded by
+        // that date and not by the trading-day window. Same split as day().
+        $inRange = fn ($query) => $query
+            ->when($from !== null, fn ($q) => $q->whereDate('occurred_on', '>=', $from))
+            ->whereDate('occurred_on', '<=', $to);
+
+        $manualIn = (int) CashMovement::query()
+            ->where('direction', CashMovement::IN)
+            ->tap($inRange)
+            ->sum('amount_cents');
+
+        $manualOut = (int) CashMovement::query()
+            ->outgoing()
+            ->where(function ($query) {
+                $query->whereNull('source_type')
+                    ->orWhere('source_type', '!=', (new Expense)->getMorphClass());
+            })
+            ->tap($inRange)
+            ->sum('amount_cents');
+
+        $expenses = (int) Expense::query()
+            ->fromCash()
+            ->when($from !== null, fn ($q) => $q->whereDate('spent_on', '>=', $from))
+            ->whereDate('spent_on', '<=', $to)
+            ->sum('amount_cents');
+
+        return $collected + $manualIn - $expenses - $manualOut;
+    }
+
+    /**
+     * Taken from customers: what the till actually received, on the day it
+     * received it.
+     *
+     * Summed from `order_payments` — the record of each handover — rather
+     * than from the bills settled today. The two are the same figure for a
+     * table that pays once, which is nearly all of them, and they are not the
+     * same for a table that pays in instalments: a bill half-paid tonight and
+     * settled tomorrow put money in the drawer tonight.
+     *
+     * Read off the bill's own running total instead, as this did, and that
+     * money is in the drawer and in no figure describing the drawer — then
+     * the whole bill lands on the day it settles, including the half that
+     * arrived the night before. The night it arrived counts short by it and
+     * the night it settles counts over by the same amount: the identical
+     * failure this class already fixed for `created_at` versus `paid_at`, and
+     * the reason the moments are now recorded rather than inferred.
+     *
+     * Cancelled bills are excluded here and not at write time, so voiding a
+     * table takes its money out of the day exactly the way paidOrders() does.
+     */
     public function collectedCents(string $date): int
     {
-        return (int) $this->paidOrders($date)->get()->sum(fn (Order $order) => $order->collectedCents());
+        return (int) OrderPayment::query()
+            ->whereBetween('received_at', [
+                $this->businessDay->startOf($date),
+                $this->businessDay->endOf($date),
+            ])
+            ->whereHas('order', fn ($query) => $query->where('status', '!=', 'cancelled'))
+            ->sum('amount_cents');
     }
 
     /** Cash-paid expenses only. */
@@ -254,29 +359,32 @@ class Cashbox
      */
     public function movements(string $date): array
     {
-        // By `paid_at`, matching Cashbox::paidOrders() — this list has to add
-        // up to the balance that sits above it. The row was already stamped
-        // with the payment time while being selected by the creation date,
-        // so a bill settled after midnight appeared on the wrong day with a
-        // timestamp that contradicted the column it was filed under.
-        $orders = Order::query()
-            ->whereBetween('paid_at', [
+        // One line per handover, matching collectedCents() — this list has to
+        // add up to the balance that sits above it, and a bill paid in two
+        // goes into the drawer twice, on two different days.
+        //
+        // Listing settled bills instead put a table's whole total on the
+        // night it closed, so a manager tracing an evening that was fifty
+        // over found a list that agreed with the wrong figure.
+        $orders = OrderPayment::query()
+            ->whereBetween('received_at', [
                 $this->businessDay->startOf($date),
                 $this->businessDay->endOf($date),
             ])
-            ->where('status', '!=', 'cancelled')
-            ->whereNotNull('paid_at')
-            ->with('paidBy')
+            ->whereHas('order', fn ($query) => $query->where('status', '!=', 'cancelled'))
+            ->with('order.table', 'receivedBy')
             ->get()
-            ->map(fn (Order $order) => [
-                'id' => 'order-'.$order->id,
+            ->map(fn (OrderPayment $payment) => [
+                'id' => 'payment-'.$payment->id,
                 'kind' => 'order',
-                'direction' => CashMovement::IN,
-                'label' => $order->reference,
-                'description' => $order->table?->label ?? $order->table_number,
-                'amount_cents' => $order->collectedCents(),
-                'at' => $order->paid_at?->toIso8601String(),
-                'by' => $order->paidBy?->name,
+                // Negative only when a bill was corrected downwards and money
+                // went back across the counter, which is cash leaving.
+                'direction' => $payment->amount_cents < 0 ? CashMovement::OUT : CashMovement::IN,
+                'label' => $payment->order?->reference,
+                'description' => $payment->order?->table?->label ?? $payment->order?->table_number,
+                'amount_cents' => abs($payment->amount_cents),
+                'at' => $payment->received_at?->toIso8601String(),
+                'by' => $payment->receivedBy?->name,
                 'deletable' => false,
             ]);
 
