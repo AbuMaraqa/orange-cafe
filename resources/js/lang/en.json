@@ -270,7 +270,8 @@
             "drag_hint": "Drag ⋮⋮ to order products — this is the order they appear in.",
             "reorder_disabled_by_filter": "Clear the filters to reorder by dragging.",
             "reorder_needs_full_list": "Reordering is not possible while filtered — clear the filters first.",
-            "reorder_disabled_by_paging": "Reordering needs the whole list on one page"
+            "reorder_disabled_by_paging": "Reordering needs the whole list on one page",
+            "menu_pdf": "Download menu PDF"
         },
         "menus": {
             "title": "Menus",
@@ -680,6 +681,7 @@
         "deductions_note": "Staff deductions and bill discounts are shown for information only and are not subtracted from the drawer — neither takes cash out of it.",
         "close_day": "Close the day",
         "reopen_day": "Reopen the day",
+        "print_day": "Print day report",
         "day_closed_badge": "Day closed",
         "day_open_badge": "Day open",
         "counted_amount": "Cash actually in the drawer",

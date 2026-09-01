@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Admin\LanguageController;
 use App\Http\Controllers\Admin\MenuBuilderController;
 use App\Http\Controllers\Admin\MenuController;
+use App\Http\Controllers\Admin\MenuPdfController;
 use App\Http\Controllers\Admin\ModifierGroupController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Admin\PrinterController;
@@ -230,6 +231,12 @@ Route::group([
         Route::resource('products', ProductController::class)->except(['show']);
         Route::patch('products/{product}/toggle-active', [ProductController::class, 'toggleActive'])->name('products.toggle-active');
         Route::patch('products-reorder', [ProductController::class, 'reorder'])->name('products.reorder');
+
+        // The catalog as a PDF, for a customer who is not at a table — the
+        // one who rings up and asks what there is. Hyphenated for the same
+        // reason categories-reorder is: Route::resource('menus') above owns
+        // menus/{menu}, and this would be read as a menu called "pdf".
+        Route::get('menu-pdf', MenuPdfController::class)->name('menu.pdf');
         Route::resource('modifier-groups', ModifierGroupController::class)->except(['show']);
         Route::patch('modifier-groups-reorder', [ModifierGroupController::class, 'reorder'])->name('modifier-groups.reorder');
         Route::get('modifier-groups/{modifierGroup}/products', [ModifierGroupController::class, 'products'])->name('modifier-groups.products');
@@ -295,6 +302,20 @@ Route::group([
         Route::middleware('permission:cashbox.view')->group(function () {
             Route::get('cashbox', [CashboxController::class, 'index'])->name('cashbox');
             Route::get('cashbox/closings', [CashboxController::class, 'closings'])->name('cashbox.closings');
+
+            // The day's figures on the till roll. Guarded by `view` rather
+            // than `close`, so it sits at the same door as reading the cash
+            // box on screen: putting a figure on paper is reading it, and a
+            // printout is not a stronger act than the page it came from.
+            //
+            // In this cafe that door is the owner's — config/permissions.php
+            // gives the cashier role no accounting permission at all ("the
+            // money side of the business is the owner's, and the till is not
+            // a window into it"), which puts the nightly close, and this,
+            // with an admin. Anything printing the day's takings has to stay
+            // behind the same rule; a report is exactly the artefact that
+            // would otherwise walk it out of the room.
+            Route::post('cashbox/print', [CashboxController::class, 'print'])->name('cashbox.print');
         });
 
         Route::post('cashbox/movements', [CashboxController::class, 'storeMovement'])

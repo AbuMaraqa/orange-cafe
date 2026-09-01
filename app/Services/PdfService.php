@@ -83,6 +83,20 @@ class PdfService
             'fontdata' => $fontData + [
                 'tajawal' => ['R' => 'tajawal-regular.ttf', 'B' => 'tajawal-bold.ttf', 'useOTL' => 0xFF],
                 'almarai' => ['R' => 'almarai-regular.ttf', 'B' => 'almarai-bold.ttf', 'useOTL' => 0xFF],
+                // Registered, not selected. Nothing in this class ever makes
+                // IBM Plex the default face: the brand-font setting below
+                // still resolves only to Tajawal or Almarai, so every invoice,
+                // ticket and report is set in exactly the face it was before.
+                // The one document that asks for this one asks in its own
+                // stylesheet (pdf.customer-menu), which mPDF can only honour
+                // if the font is declared here.
+                //
+                // 'plex-arabic' is already an option in Settings, and has
+                // never worked for PDFs: it ships to the browser as a set of
+                // subsetted woff2 files, a format mPDF cannot read and one
+                // that carries a slice of the character set per file. This is
+                // the full TTF, which is a different thing from those.
+                'plexarabic' => ['R' => 'plexarabic-regular.ttf', 'B' => 'plexarabic-bold.ttf', 'useOTL' => 0xFF],
             ],
         ], $options));
 

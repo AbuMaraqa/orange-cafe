@@ -30,4 +30,48 @@ return [
     'note' => 'Note',
     'added_round' => 'Added to an earlier order',
     'order_note' => 'Order note',
+
+    // The printable customer menu (pdf.customer-menu) — the version of
+    // the catalog that gets sent to someone who is not in the room.
+    'page' => 'Page',
+    'phone' => 'Phone',
+    'menu_empty' => 'No published menu items yet.',
+
+    // The day's cash box on the till printer (pdf.day-report-thermal). The
+    // wording is lifted from the cash box screen: the person holding the
+    // paper is the person who read the screen, and two names for one figure
+    // makes them doubt one of them.
+    'day_report' => [
+        'title' => 'Cash box report',
+        'business_date' => 'Business day',
+        'printed_at' => 'Printed at',
+        'printed_by' => 'Printed by',
+
+        'opening' => 'Opening float',
+        'collected' => 'Collected from orders',
+        'manual_in' => 'Cash in',
+        'total_in' => 'Total in',
+        'expenses' => 'Cash expenses',
+        'manual_out' => 'Cash out',
+        'total_out' => 'Total out',
+        'expected' => 'Expected in drawer',
+
+        'counted' => 'Counted',
+        'difference' => 'Difference',
+        'over' => 'over',
+        'short' => 'short',
+        'balanced' => 'balanced',
+
+        'orders_count' => 'Orders',
+        'staff_deductions' => 'Staff deductions',
+        'bill_discounts' => 'Bill discounts',
+        'not_in_drawer' => 'For information — not taken from the drawer',
+
+        'day_closed' => 'Day closed',
+        'day_open' => 'Day still open',
+        'closed_by' => 'Closed by',
+        'closing_notes' => 'Closing notes',
+
+        'provisional' => 'Provisional — the day has not been closed yet',
+    ],
 ];

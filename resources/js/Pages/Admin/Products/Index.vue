@@ -2,6 +2,7 @@
 import Checkbox from '@/Components/Checkbox.vue';
 import NavIcon from '@/Components/NavIcon.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
+import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import ToggleSwitch from '@/Components/ToggleSwitch.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -191,7 +192,14 @@ function formatPrice(cents) {
     <AuthenticatedLayout>
         <template #header>{{ $t('admin.products.title') }}</template>
 
-        <div class="mb-4 flex justify-end">
+        <div class="mb-4 flex justify-end gap-3">
+            <!-- A plain anchor, not an Inertia <Link>: the response is a PDF,
+                 and Inertia would try to parse it as a page and throw. target
+                 keeps the product list where it is — this is something an
+                 owner glances at and sends on, not somewhere they navigate. -->
+            <a :href="route('admin.menu.pdf')" target="_blank" rel="noopener">
+                <SecondaryButton>{{ $t('admin.products.menu_pdf') }}</SecondaryButton>
+            </a>
             <Link :href="route('admin.products.create')">
                 <PrimaryButton>{{ $t('admin.products.add_product') }}</PrimaryButton>
             </Link>
