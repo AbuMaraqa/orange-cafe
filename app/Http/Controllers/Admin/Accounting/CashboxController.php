@@ -10,10 +10,10 @@ use App\Models\CashMovement;
 use App\Models\DailyClosing;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
-use App\Models\Order;
 use App\Models\User;
 use App\Services\Accounting\Cashbox;
 use App\Services\Accounting\DayCloser;
+use App\Services\Accounting\DayReportPrinter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -142,6 +142,31 @@ class CashboxController extends Controller
         return back()->with('success', __('accounting.cash.deleted'));
     }
 
+    /**
+     * The day's figures on the till printer.
+     *
+     * Sent straight through rather than queued, and the result is reported
+     * as it happened — see DayReportPrinter for why a retry an hour later
+     * would be a different report rather than a rescue. A failure comes back
+     * as `error` and not `success`, because a cashier told the report printed
+     * will go looking for paper that is not there rather than for the
+     * printer that is off.
+     */
+    public function print(Request $request, DayReportPrinter $printer): RedirectResponse
+    {
+        $data = $request->validate(['date' => ['required', 'date']]);
+
+        $sent = $printer->print($data['date'], $request->user());
+
+        if ($sent === 0) {
+            return back()->with('error', __('accounting.day_report_failed', [
+                'error' => $printer->lastError(),
+            ]));
+        }
+
+        return back()->with('success', __('accounting.day_report_printed'));
+    }
+
     public function close(Request $request): RedirectResponse
     {
         $this->normaliseAmount('counted_cents', 'counted');
@@ -210,5 +235,4 @@ class CashboxController extends Controller
             'can' => ['reopen' => $request->user()?->can('cashbox.reopen') ?? false],
         ]);
     }
-
 }

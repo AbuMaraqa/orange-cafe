@@ -65,6 +65,19 @@ function reopen() {
     router.post(route('admin.accounting.cashbox.reopen'), { date: props.date }, { preserveScroll: true });
 }
 
+// Rasterising an Arabic ticket is mPDF then pdftoppm then ESC/POS, which
+// takes a moment on the machine in the café — long enough that without this
+// the button looks dead and gets pressed again, printing the day twice.
+const printing = ref(false);
+
+function printDay() {
+    router.post(route('admin.accounting.cashbox.print'), { date: props.date }, {
+        preserveScroll: true,
+        onStart: () => (printing.value = true),
+        onFinish: () => (printing.value = false),
+    });
+}
+
 function deleteMovement(movement) {
     if (!confirm(t('accounting.confirm_delete'))) return;
 
@@ -158,6 +171,16 @@ function movementLabel(movement) {
                 <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('accounting.close_day') }}</h3>
 
                 <div class="flex gap-2">
+                    <!-- Beside the closing controls, not in the page header:
+                         the paper is what a manager counts the drawer
+                         against, so it belongs where the counting happens.
+                         Available whether or not the day is closed — before,
+                         it is the sheet you count with; after, it is the
+                         record, and it prints the counted figure and the gap
+                         once there is one. -->
+                    <SecondaryButton type="button" :disabled="printing" @click="printDay">
+                        {{ printing ? $t('accounting.loading') : $t('accounting.print_day') }}
+                    </SecondaryButton>
                     <PrimaryButton v-if="can.close && !isClosed" type="button" @click="showClose = !showClose">
                         {{ $t('accounting.close_day') }}
                     </PrimaryButton>

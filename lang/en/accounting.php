@@ -43,6 +43,10 @@ return [
     'day_closed' => 'Day closed.',
     'day_reopened' => 'Day reopened.',
     'day_already_closed' => 'This day is already closed.',
+    'day_report_printed' => 'The day report was sent to the till printer.',
+    // Carries the reason: "printing failed" on its own sends a cashier
+    // looking for paper rather than for the printer.
+    'day_report_failed' => 'The day report could not be printed — :error',
     'day_not_closed' => 'This day is not closed.',
     'day_is_closed' => 'A closed day cannot be edited. Reopen it first.',
 
