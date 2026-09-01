@@ -114,6 +114,20 @@ return [
         // this one.
         'public/hot',
 
+        // The development machine's storage link, which on a build machine
+        // running Laragon is always present — `storage:link` is part of
+        // setting the project up. It is a junction pointing at
+        // C:\...\orange-cafe\storage\app\public, a path that does not exist
+        // on a customer's computer, and packaging tools resolve a junction by
+        // copying what is behind it: the developer's own menu photography,
+        // shipped inside the installer.
+        //
+        // NativeAppServiceProvider::linkPublicStorage() recreates it on the
+        // customer's machine at boot, pointing at the relocated storage
+        // directory — which is the only place it can be decided, since that
+        // path is not known until the app runs there.
+        'public/storage',
+
         // Any .env the developer keeps beside the production one while
         // building — .env.dev-backup is exactly what the documented build
         // procedure creates, and it holds the development machine's own

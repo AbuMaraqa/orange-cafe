@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Native\InstallIdentity;
 use App\Services\Native\NativeNetworkInfo;
 use App\Services\Native\NativeServices;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -90,6 +91,7 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         }
 
         $this->ensureDatabaseIsReady();
+        $this->linkPublicStorage();
         $this->openControlWindow();
 
         // No database gate around the services below, on purpose. NativePHP
@@ -234,6 +236,134 @@ class NativeAppServiceProvider implements ProvidesPhpIni
             // went wrong instead of staring at a process that vanished.
             Log::error('Database preparation failed.', ['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Points `public/storage` at the storage disk, so the LAN server hands
+     * out menu photos itself instead of booting Laravel once per picture.
+     *
+     * `artisan serve` is `php -S`, and its router script returns false —
+     * "serve this one yourself" — for any URI that exists as a real file
+     * under the public directory. Uploaded images never do here: NativePHP
+     * moves storage to a per-user application-data directory at boot, so
+     * nothing under public/ points at them and every photo falls through to
+     * StorageFileController, which is a full framework boot to hand over a
+     * file already sitting on disk.
+     *
+     * Measured on a development machine, which is faster than the one in the
+     * cafe: 1.8ms for the built-in server to send a 250KB file, against 46ms
+     * for the cheapest Laravel request that exists (`/up`). Twenty-six times,
+     * per photo.
+     *
+     * That multiplies rather than adds, because the server answers one
+     * request at a time: PHP's built-in server is single-threaded, and
+     * PHP_CLI_SERVER_WORKERS needs fork(), so on Windows there is no pool to
+     * configure — setting it changes nothing at all (measured: six concurrent
+     * menu loads still arrive 477/761/1020/1281/1548/1843ms, a flat queue).
+     * A customer opening the menu therefore does not merely wait for their
+     * own forty photos; they hold the kitchen screen and every waiter tablet
+     * behind them for the duration. Forty images is ~1.8s of blocked server
+     * through the controller, against ~70ms served directly.
+     *
+     * None of this is load-bearing. StorageFileController stays exactly where
+     * it is and still answers whenever the link is missing or a file is not
+     * behind it, which is what makes this safe to attempt and safe to fail.
+     */
+    private function linkPublicStorage(): void
+    {
+        try {
+            $link = public_path('storage');
+            $target = storage_path('app/public');
+
+            // A fresh install has had nothing uploaded to it yet, and
+            // `mklink /J` refuses a target that does not exist.
+            if (! is_dir($target) && ! @mkdir($target, 0755, true) && ! is_dir($target)) {
+                Log::warning('Could not create the public storage directory.', ['path' => $target]);
+
+                return;
+            }
+
+            clearstatcache(true, $link);
+
+            if (realpath($link) === realpath($target)) {
+                return;
+            }
+
+            if (file_exists($link) && ! $this->removeStaleStorageLink($link)) {
+                return;
+            }
+
+            // Not Artisan::call('storage:link'). That command reads its pairs
+            // from config('filesystems.links'), whose keys were produced by
+            // public_path()/storage_path() at the moment the config cache was
+            // built — and this app runs on a cached config it did not
+            // necessarily build here. Resolving both ends now, in the process
+            // that has the relocated storage path, is the only version that
+            // cannot be handed a developer's directory. Filesystem::link()
+            // is the same call the command would end up making.
+            app(Filesystem::class)->link($target, $link);
+
+            clearstatcache(true, $link);
+
+            if (realpath($link) === realpath($target)) {
+                Log::info('Linked public/storage — the LAN server now serves uploads without booting Laravel.', [
+                    'link' => $link,
+                    'target' => $target,
+                ]);
+
+                return;
+            }
+
+            Log::warning('Could not link public/storage; uploads will be served through StorageFileController.', [
+                'link' => $link,
+                'target' => $target,
+            ]);
+        } catch (Throwable $e) {
+            // An optimisation is never worth a failed boot. Everything still
+            // works without it, only more slowly.
+            Log::warning('Could not link public/storage.', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Clears a `public/storage` that points somewhere other than the storage
+     * disk, and reports whether the path is now free.
+     *
+     * Only ever a link. A *real* directory there is left strictly alone: it
+     * would be one the build accidentally packaged, holding the developer's
+     * own photos, and deleting a directory tree to make room for a
+     * performance optimisation is not a trade this is allowed to make. The
+     * app is already correct without it — every file that stale copy lacks
+     * falls through to StorageFileController, which reads the real disk.
+     *
+     * is_link() cannot tell the two apart, which is the whole reason this is
+     * written out rather than left to `storage:link --force`: on Windows a
+     * junction reports is_link() === false (measured), so that command's own
+     * --force check never fires and it skips the repair with "the link
+     * already exists". filetype() does distinguish them — a reparse point
+     * reads as 'unknown' where a real directory reads as 'dir'.
+     *
+     * Unlinking a junction leaves the target and its contents untouched;
+     * that was verified on a junction holding a file before this was written,
+     * because getting it wrong deletes the cafe's menu photography.
+     */
+    private function removeStaleStorageLink(string $link): bool
+    {
+        if (! is_link($link) && @filetype($link) !== 'unknown') {
+            Log::warning('public/storage is a real directory rather than a link — leaving it alone.', ['path' => $link]);
+
+            return false;
+        }
+
+        // rmdir for a Windows junction or a directory symlink; unlink for a
+        // POSIX symlink, where rmdir refuses the link itself.
+        if (! @rmdir($link) && ! @unlink($link)) {
+            Log::warning('Could not remove the stale public/storage link.', ['path' => $link]);
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -461,6 +591,30 @@ class NativeAppServiceProvider implements ProvidesPhpIni
             // one turns the crash into a slightly slower cold start.
             'opcache.file_cache' => $this->opcacheFileCache(),
             'opcache.file_cache_fallback' => '1',
+
+            // opcache.validate_timestamps stays ON. It was set to 0 once, as
+            // a ~9% saving on the per-request stat() of every included file,
+            // and it broke the app outright — the symptom being a window
+            // that opens with nothing behind it and a log holding a single
+            // unexplained 403.
+            //
+            // The two settings above are why. file_cache persists compiled
+            // scripts to disk *between launches*, and with validation off
+            // nothing ever reconsiders them. So the compiled
+            // bootstrap/cache/config.php from the previous launch is served
+            // to the next one, carrying that launch's NATIVEPHP_SECRET —
+            // and Electron generates a fresh secret on every start. The
+            // running app then authenticates with a secret the cached
+            // config has never heard of, PreventRegularBrowserAccess 403s
+            // every /_native/* request including the POST to
+            // /_native/api/booted, and boot() never runs: no LAN server, no
+            // Reverb, no queue worker, no scheduler.
+            //
+            // That is precisely the failure OptimizeCommand::
+            // nativeRuntimeChanged() exists to catch. It rebuilds the config
+            // cache when the secret moves — and rebuilding the *file* is
+            // useless if OPcache has been told never to look at it again.
+            // The saving is not worth defeating that.
         ];
     }
 
