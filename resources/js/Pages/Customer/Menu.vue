@@ -585,7 +585,10 @@ function submitFeedback() {
                             class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-xl text-white"
                             :style="{ backgroundColor: service.color }"
                         >
-                            <img v-if="service.image_url" :src="service.image_url" class="h-full w-full object-cover" :alt="service.name" />
+                            <!-- Inside a sheet that is closed until the
+                                 customer asks for it, so these are requests
+                                 for pictures nobody has looked at yet. -->
+                            <img v-if="service.image_url" :src="service.image_url" loading="lazy" decoding="async" class="h-full w-full object-cover" :alt="service.name" />
                             <template v-else>{{ service.icon }}</template>
                         </span>
                         <span class="flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{{ service.name }}</span>

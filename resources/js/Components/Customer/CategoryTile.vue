@@ -33,10 +33,17 @@ defineEmits(['open']);
             class="relative flex items-center justify-center overflow-hidden rounded-full shadow-sm ring-2 ring-transparent ring-offset-2 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md group-focus-visible:ring-[var(--brand-primary)] dark:ring-offset-gray-950"
             :class="size === 'lg' ? 'h-24 w-24' : 'h-16 w-16'"
         >
+            <!-- Same reason as the dish thumbnail in ProductCard: the tiles
+                 scroll sideways and a café with thirty sections has most of
+                 them off-screen, each one otherwise a request queued ahead of
+                 whatever the kitchen asks for next. The tiles actually on
+                 screen still load straight away. -->
             <img
                 v-if="category.image_url && !failedImages.has(`category-${category.id}`)"
                 :src="category.image_url"
                 :alt="category.name"
+                loading="lazy"
+                decoding="async"
                 class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                 @error="failedImages.add(`category-${category.id}`)"
             />

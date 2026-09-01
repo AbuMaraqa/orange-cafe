@@ -72,10 +72,26 @@ function formatPrice(cents) {
              sit on the edge rather than be cut off by `overflow-hidden`. -->
         <div class="relative h-24 w-24 shrink-0">
             <div class="h-full w-full overflow-hidden rounded-2xl bg-gray-100 dark:bg-gray-800">
+                <!-- Deferred until it is near the viewport, which on this
+                     screen is most of them. A section can hold sixty dishes,
+                     and without this the phone asks for sixty photos the
+                     instant the list renders — at a server that answers one
+                     request at a time (`artisan serve` is `php -S`, and its
+                     worker pool needs fork(), so on Windows there is exactly
+                     one). Those sixty do not merely arrive slowly: they sit
+                     in front of the kitchen screen's next request and the
+                     waiter tablet's, so one customer opening a menu stalls
+                     the floor. Images below the fold are the ones nobody is
+                     waiting for, so they are the ones to move out of the way.
+
+                     In-viewport images are unaffected — the browser loads
+                     those immediately either way. -->
                 <img
                     v-if="product.image_url && !imageFailed"
                     :src="product.image_url"
                     :alt="product.name"
+                    loading="lazy"
+                    decoding="async"
                     class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                     @error="imageFailed = true"
                 />
