@@ -157,6 +157,37 @@
         .value.unknown { color: var(--text-faint); }
         .placeholder { color: var(--text-faint); font-size: 13px; }
 
+        /* The firewall advice under "وصول الأجهزة", shown only while nothing
+           on the network has ever connected. */
+        .hint-block {
+            margin: 2px 0 8px;
+            padding: 9px 11px;
+            font-size: 12px;
+            line-height: 1.7;
+            color: var(--text-soft);
+            background: color-mix(in srgb, var(--warn) 8%, transparent);
+            border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+            border-radius: 8px;
+        }
+        .hint-block code {
+            display: block;
+            margin-top: 6px;
+            direction: ltr;
+            text-align: left;
+            font-family: Consolas, monospace;
+            font-size: 11.5px;
+            color: var(--text);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 9px;
+            /* One click selects the whole command — it is long, and it is
+               being retyped into an Administrator PowerShell by somebody who
+               is already having a bad day. */
+            user-select: all;
+            word-break: break-all;
+        }
+
         .banner {
             margin-bottom: 12px;
             padding: 9px 11px;
@@ -435,6 +466,56 @@
             );
         }
 
+        /**
+         * Whether any device on the network has actually reached the app.
+         *
+         * The row above it says the port is open, and it is always right and
+         * never enough: it dials 127.0.0.1, and this machine can always reach
+         * itself. A first launch where somebody dismissed the Windows
+         * Defender prompt leaves the server listening and blocked from every
+         * tablet in the building, with that row green the whole time.
+         *
+         * So this one reports a fact instead of a guess — a request that
+         * arrived from another IP — and only offers the firewall command in
+         * the case where the firewall is a plausible explanation, because a
+         * warning that is always on screen is one nobody reads.
+         */
+        function reachRow(reach, port) {
+            if (!reach) {
+                return statusRow('وصول الأجهزة', 'warn', 'لم يصل أي جهاز بعد')
+                    + firewallHint(port);
+            }
+
+            const minutes = Math.floor(reach.seconds_ago / 60);
+
+            // Recent enough that the network is demonstrably working now.
+            if (minutes < 10) {
+                return statusRow('وصول الأجهزة', true,
+                    minutes < 1 ? `${reach.ip} — الآن` : `${reach.ip} — قبل ${minutes} د`);
+            }
+
+            // It worked before, so the firewall is not the question; a quiet
+            // café at 3pm looks exactly like this and is not a fault.
+            const hours = Math.floor(minutes / 60);
+
+            return statusRow('وصول الأجهزة', null,
+                hours < 24 ? `آخر جهاز قبل ${hours || 1} س` : `آخر جهاز قبل ${Math.floor(hours / 24)} يوم`);
+        }
+
+        /**
+         * Shown only while nothing has ever connected. Windows raises its
+         * firewall prompt once, on the first launch, and answering it wrongly
+         * is silent and permanent — this is the command that undoes it, and
+         * it needs an Administrator PowerShell.
+         */
+        function firewallHint(port) {
+            const command = `netsh advfirewall firewall add rule name="Orange Cafe" dir=in action=allow protocol=TCP localport=${port ?? 8000},8080`;
+
+            return `<p class="hint-block">إذا كانت الأجهزة لا تفتح الصفحة، غالباً جدار حماية ويندوز يمنع المنفذ.
+                شغّل هذا الأمر في PowerShell <strong>كمسؤول</strong> على هذا الجهاز:
+                <code>${command}</code></p>`;
+        }
+
         async function refreshStatus() {
             const pill = document.getElementById('headerPill');
 
@@ -451,6 +532,7 @@
                 const rows = [
                     statusRow('قاعدة البيانات', data.database?.ok, data.database?.ok ? 'متصلة' : 'غير متصلة'),
                     statusRow('خادم الشبكة (LAN)', data.lan_server?.ok, `منفذ ${data.lan_server?.port}`),
+                    reachRow(data.lan_reach, data.lan_server?.port),
                     statusRow('البث اللحظي (Reverb)', data.reverb?.ok, `${data.reverb?.host}:${data.reverb?.port}`),
                     statusRow('الطابور (Queue)', data.queue?.process,
                         `انتظار ${data.queue?.pending ?? '—'} / فشل ${data.queue?.failed ?? '—'}`),

@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureRequestIsLocal;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RecordLanReachability;
 use App\Http\Middleware\SyncUserLocale;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
@@ -11,6 +12,7 @@ use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRedirectFilter;
 use Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRoutes;
 use Mcamara\LaravelLocalization\Middleware\LocaleSessionRedirect;
+use Spatie\Permission\Exceptions\UnauthorizedException;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
 
@@ -29,6 +31,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+            // Records that something other than this machine reached the
+            // app, which is the only honest answer to "can the tablets get
+            // here" — the control panel's own probes go to 127.0.0.1 and
+            // would report a firewalled server as healthy. See
+            // App\Services\Native\LanReachability.
+            RecordLanReachability::class,
         ]);
 
         $middleware->alias([
@@ -65,7 +73,6 @@ return Application::configure(basePath: dirname(__DIR__))
         // The refusal itself is unaffected: this changes what is written
         // down, never what is allowed.
         $exceptions->dontReport([
-            \Spatie\Permission\Exceptions\UnauthorizedException::class,
+            UnauthorizedException::class,
         ]);
     })->create();
-

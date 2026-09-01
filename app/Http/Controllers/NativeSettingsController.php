@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Printer;
 use App\Services\Native\BackupService;
+use App\Services\Native\LanReachability;
 use App\Services\Native\NativeEnvSettings;
 use App\Services\Native\NativeNetworkInfo;
 use App\Services\Native\NativeServices;
@@ -187,6 +188,17 @@ class NativeSettingsController extends Controller
             // that assumption is simply false here — checking the port
             // directly is correct either way.
             'lan_server' => ['ok' => $network->portOpen('127.0.0.1', $lanPort), 'port' => $lanPort],
+            // Whether anything in the building has ever actually got through.
+            //
+            // The row above proves only that the port is open *to this
+            // machine*, and 127.0.0.1 always is. A dismissed Windows Defender
+            // prompt on first launch leaves the LAN server listening and
+            // unreachable from every tablet in the restaurant, with this
+            // panel reporting it green — the failure it is least able to
+            // afford. A request that arrived from another IP settles the
+            // question outright, without asking a localised firewall a
+            // question it answers unreliably. See LanReachability.
+            'lan_reach' => app(LanReachability::class)->lastSeen(),
             'thermal' => [
                 'ok' => $poppler->available(),
                 'usb' => UsbPrinterTransport::supported(),

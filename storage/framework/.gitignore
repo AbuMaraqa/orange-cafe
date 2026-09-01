@@ -2,6 +2,7 @@ compiled.php
 config.php
 down
 events.scanned.php
+last-lan-client.json
 maintenance.php
 routes.php
 routes.scanned.php
