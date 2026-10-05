@@ -132,8 +132,12 @@ function advance(order) {
     router.patch(route('orders.status', order.id), { status: next }, { preserveScroll: true });
 }
 
-function markPaid(order, amountPaidCents) {
-    router.patch(route('orders.pay', order.id), { amount_paid_cents: amountPaidCents }, { preserveScroll: true });
+/**
+ * @param {{amount_paid_cents: number, payment_method: string, payment_reference: ?string}} payment
+ *        as emitted by OrderCard — the amount, and how it arrived.
+ */
+function markPaid(order, payment) {
+    router.patch(route('orders.pay', order.id), payment, { preserveScroll: true });
 }
 
 function printOrder(order) {

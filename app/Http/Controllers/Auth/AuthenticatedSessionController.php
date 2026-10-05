@@ -8,7 +8,6 @@ use App\Services\LanguageRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
@@ -21,7 +20,9 @@ class AuthenticatedSessionController extends Controller
     public function create(): Response
     {
         return Inertia::render('Auth/Login', [
-            'canResetPassword' => Route::has('password.request'),
+            // Resetting is done by email, and staff accounts have none — an
+            // admin sets a new password from the users page instead.
+            'canResetPassword' => false,
             'status' => session('status'),
         ]);
     }

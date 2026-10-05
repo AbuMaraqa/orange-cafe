@@ -75,7 +75,7 @@ class NativeSettingsController extends Controller
      * application-data directory that nobody would think to look in — an app
      * that cannot be logged into.
      *
-     * @return array{email: string, password: string}|null
+     * @return array{username: string, password: string}|null
      */
     private function firstRunCredentials(): ?array
     {
@@ -87,14 +87,16 @@ class NativeSettingsController extends Controller
 
         $contents = (string) file_get_contents($path);
 
-        preg_match('/^Email:\s*(.+)$/m', $contents, $email);
+        // Files written before usernames say "Email:" — that address is the
+        // account's username now, so it still logs in as shown.
+        preg_match('/^(?:Username|Email):\s*(.+)$/m', $contents, $username);
         preg_match('/^Password:\s*(.+)$/m', $contents, $password);
 
-        if (! isset($email[1], $password[1])) {
+        if (! isset($username[1], $password[1])) {
             return null;
         }
 
-        return ['email' => trim($email[1]), 'password' => trim($password[1])];
+        return ['username' => trim($username[1]), 'password' => trim($password[1])];
     }
 
     /**

@@ -4,6 +4,7 @@ import NavIcon from '@/Components/NavIcon.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import { useOrderStatus } from '@/composables/useOrderStatus';
+import { PAYMENT_CARD, PAYMENT_CASH, PAYMENT_METHODS, PAYMENT_METHOD_ICONS } from '@/constants/paymentMethods';
 import { usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 
@@ -76,8 +77,21 @@ function timeAgo(iso) {
 const showingPayForm = ref(false);
 const payAmount = ref('');
 
+// Cash unless the cashier says otherwise, reset every time the box opens —
+// see TableBillModal for why this must not remember the last choice.
+const payMethod = ref(PAYMENT_CASH);
+const payReference = ref('');
+
+const payingByCard = computed(() => payMethod.value === PAYMENT_CARD);
+
+function choosePayMethod(method) {
+    payMethod.value = method;
+    if (method !== PAYMENT_CARD) payReference.value = '';
+}
+
 function openPayForm() {
     payAmount.value = (props.order.total_cents / 100).toFixed(2);
+    choosePayMethod(PAYMENT_CASH);
     showingPayForm.value = true;
 }
 
@@ -89,7 +103,23 @@ const payDifferenceCents = computed(() => {
 function confirmPay() {
     const cents = Math.round(Number(payAmount.value) * 100);
     if (!Number.isFinite(cents) || cents < 0) return;
-    emit('pay', cents);
+
+    // Optional: a blank box is a cafe that does not reconcile against its
+    // terminal, not a mistake worth stopping a cashier over with a customer
+    // in front of them. Null rather than the empty string, so the column
+    // holds either a number somebody can look up or nothing at all.
+    const reference = payReference.value.trim();
+
+    // An object rather than the bare amount this used to emit: the till now
+    // has three things to say about a payment, and a positional second
+    // argument is the kind of thing a later caller passes in the wrong order
+    // without the code looking wrong anywhere.
+    emit('pay', {
+        amount_paid_cents: cents,
+        payment_method: payMethod.value,
+        payment_reference: payingByCard.value && reference !== '' ? reference : null,
+    });
+
     showingPayForm.value = false;
 }
 </script>
@@ -164,6 +194,16 @@ function confirmPay() {
                     >
                         {{ t('admin.accounting.received') }} {{ formatPrice(order.amount_paid_cents) }}
                     </div>
+                    <!-- How it was settled. See TableBillModal: the question
+                         asked about a closed bill is nearly always this one. -->
+                    <div
+                        v-if="order.payment_method"
+                        class="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+                    >
+                        <NavIcon :name="PAYMENT_METHOD_ICONS[order.payment_method]" class="h-3.5 w-3.5" />
+                        <span>{{ t(`staff.payment_methods.${order.payment_method}`) }}</span>
+                        <span v-if="order.payment_reference" class="tabular-nums" dir="ltr">· {{ order.payment_reference }}</span>
+                    </div>
                 </div>
                 <div class="flex flex-wrap justify-end gap-2">
                     <a v-if="showInvoice" :href="route('orders.invoice', order.id)" target="_blank" rel="noopener">
@@ -212,6 +252,41 @@ function confirmPay() {
                         {{ payDifferenceCents < 0 ? t('staff.discount') : t('staff.change_due') }}: {{ formatPrice(Math.abs(payDifferenceCents)) }}
                     </span>
                 </div>
+
+                <!-- Cash or card, then the terminal's reference when it is a
+                     card — offered, not demanded. Same two-button shape as the
+                     table bill sheet, so a cashier moving between the floor
+                     plan and this list is not learning the control twice. -->
+                <div class="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                        v-for="method in PAYMENT_METHODS"
+                        :key="method"
+                        type="button"
+                        class="flex h-9 items-center justify-center gap-1.5 rounded-md border text-xs font-medium transition-colors"
+                        :class="payMethod === method
+                            ? 'border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900'
+                            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300'"
+                        @click="choosePayMethod(method)"
+                    >
+                        <NavIcon :name="PAYMENT_METHOD_ICONS[method]" class="h-4 w-4" />
+                        {{ t(`staff.payment_methods.${method}`) }}
+                    </button>
+                </div>
+
+                <div v-if="payingByCard" class="mt-2">
+                    <input
+                        v-model="payReference"
+                        type="text"
+                        dir="ltr"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        maxlength="60"
+                        :placeholder="t('staff.payment_reference_placeholder')"
+                        class="block w-full rounded-md border-gray-300 text-sm tabular-nums shadow-sm focus:border-gray-500 focus:ring-gray-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                        @keyup.enter="confirmPay"
+                    />
+                </div>
+
                 <div class="mt-2 flex justify-end gap-2">
                     <SecondaryButton type="button" @click="showingPayForm = false">{{ t('common.cancel') }}</SecondaryButton>
                     <PrimaryButton type="button" @click="confirmPay">{{ t('staff.confirm_payment') }}</PrimaryButton>

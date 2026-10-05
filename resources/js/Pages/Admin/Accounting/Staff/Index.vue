@@ -38,6 +38,10 @@ const { money } = useMoney();
                     <tr v-for="member in staff" :key="member.id">
                         <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
                             {{ member.name }}
+                            <span v-if="member.deleted"
+                                  class="ms-1 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-normal text-red-700 dark:bg-red-900/40 dark:text-red-400">
+                                {{ $t('admin.users.deleted_account') }}
+                            </span>
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
                             <span v-for="role in member.roles" :key="role"

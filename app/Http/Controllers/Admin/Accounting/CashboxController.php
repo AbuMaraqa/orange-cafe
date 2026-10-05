@@ -16,6 +16,7 @@ use App\Services\Accounting\DayCloser;
 use App\Services\Accounting\DayReportPrinter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -51,6 +52,10 @@ class CashboxController extends Controller
             // The day's cash, line by line, so a balance that looks wrong
             // can be traced without leaving the page.
             'movements' => $this->cashbox->movements($date),
+
+            // What tomorrow opens on, so the closing form can tell the owner
+            // how much to leave behind when emptying the drawer.
+            'nextOpeningCents' => $this->cashbox->openingCents(Carbon::parse($date)->addDay()->toDateString()),
 
             'closing' => $closing ? [
                 'id' => $closing->id,

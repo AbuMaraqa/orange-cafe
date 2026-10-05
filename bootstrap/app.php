@@ -15,6 +15,7 @@ use Mcamara\LaravelLocalization\Middleware\LocaleSessionRedirect;
 use Spatie\Permission\Exceptions\UnauthorizedException;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
+use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -51,6 +52,12 @@ return Application::configure(basePath: dirname(__DIR__))
             // has to be able to count the till at night and must not be able
             // to reopen a day that was already signed off.
             'permission' => PermissionMiddleware::class,
+            // For the catalog: the admin role by itself, or the permission.
+            // The role keeps the owner in even on an install whose
+            // permissions have not been re-synced since catalog.manage was
+            // added — a permission check alone would lock the owner out of
+            // their own menu until somebody ran app:sync-reference-data.
+            'role_or_permission' => RoleOrPermissionMiddleware::class,
             'local-only' => EnsureRequestIsLocal::class,
         ]);
     })

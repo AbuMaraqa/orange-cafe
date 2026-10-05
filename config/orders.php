@@ -47,4 +47,26 @@ return [
     */
     'placed_by_roles' => ['waiter', 'cashier', 'admin'],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Who may cancel a confirmed order
+    |--------------------------------------------------------------------------
+    |
+    | Once an order is confirmed it has gone to the kitchen, and cancelling it
+    | clears the table without a penny recorded against it. That is the one
+    | button that lets a bill paid in cash disappear, so it stays with the
+    | owner — not the floor, and not the till either: the cashier is the
+    | person holding the cash the table handed over.
+    |
+    | A waiter or cashier can still cancel an order nobody has confirmed — a
+    | customer's own order from the QR menu that turned out to be a mistake —
+    | because nothing has been cooked and nothing is owed. Anything past that
+    | is a conversation with the owner.
+    |
+    | One list for the route's check and the screens' buttons, so the button
+    | is never offered to somebody the server would turn away.
+    |
+    */
+    'cancel_confirmed_roles' => ['admin'],
+
 ];

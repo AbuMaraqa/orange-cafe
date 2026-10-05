@@ -6,6 +6,7 @@ use App\Events\OrderPlaced;
 use App\Http\Controllers\Concerns\BroadcastsSafely;
 use App\Http\Requests\StoreOrderRequest;
 use App\Models\Order;
+use App\Services\GuestOrderLines;
 use App\Services\KitchenPrinterService;
 use App\Services\OrderItemWriter;
 use Illuminate\Http\RedirectResponse;
@@ -22,6 +23,7 @@ class OrderController extends Controller
     public function __construct(
         protected OrderItemWriter $itemWriter,
         protected KitchenPrinterService $printer,
+        protected GuestOrderLines $guestLines,
     ) {}
 
     public function store(StoreOrderRequest $request): RedirectResponse
@@ -85,6 +87,12 @@ class OrderController extends Controller
 
             $joinable->refresh();
 
+            // Remembered so this phone can change its own share of the
+            // ticket until a waiter confirms it — see GuestOrderLines.
+            if (! $placedByStaff) {
+                $this->guestLines->record($added);
+            }
+
             // Same event as a brand-new order on purpose: the waiter screen
             // upserts on it, so the table's card updates in place with the
             // added items and alerts whoever is on the floor. An addition
@@ -116,7 +124,9 @@ class OrderController extends Controller
                 : to_route('menu.orders.show', $joinable)->with('success', __('menu.order_placed'));
         }
 
-        $order = DB::transaction(function () use ($data, $request, $placedByStaff) {
+        $added = [];
+
+        $order = DB::transaction(function () use ($data, $request, $placedByStaff, &$added) {
             $order = Order::create([
                 'table_id' => $data['table_id'] ?? null,
                 'table_number' => $data['table_number'] ?? null,
@@ -129,13 +139,17 @@ class OrderController extends Controller
                 'total_cents' => 0,
             ]);
 
-            $total = $this->itemWriter->addLines($order, $data['items']);
+            $total = $this->itemWriter->addLines($order, $data['items'], $added);
             $order->update(['total_cents' => $total]);
 
             return $order;
         });
 
         $this->safeBroadcast(new OrderPlaced($order));
+
+        if (! $placedByStaff) {
+            $this->guestLines->record($added);
+        }
 
         if ($placedByStaff) {
             // Kitchens only, and the same rule as
@@ -244,7 +258,13 @@ class OrderController extends Controller
 
     protected function present(Order $order): array
     {
+        // Until a waiter confirms it, nothing has reached the kitchen and the
+        // guest may still change their own lines. After that the paper is in
+        // the kitchen and any change is the waiter's.
+        $editable = $order->status === 'pending' && ! $order->isPaid();
+
         return [
+            'id' => $order->id,
             'reference' => $order->reference,
             'status' => $order->status,
             'status_color' => $order->statusColor(),
@@ -256,8 +276,14 @@ class OrderController extends Controller
             'table_id' => $order->table_id,
             'total_cents' => $order->total_cents,
             'is_paid' => $order->isPaid(),
+            'editable' => $editable,
             'created_at' => $order->created_at->toIso8601String(),
             'items' => $order->items->map(fn ($item) => [
+                'id' => $item->id,
+                // How much of this line the phone looking at it added, and
+                // so may change. Zero for everybody else's — see
+                // GuestOrderLines.
+                'mine' => $editable ? $this->guestLines->mine($item) : 0,
                 'product_name' => $item->product_name,
                 'quantity' => $item->quantity,
                 'unit_price_cents' => $item->unit_price_cents,

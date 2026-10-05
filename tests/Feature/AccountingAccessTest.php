@@ -143,6 +143,30 @@ class AccountingAccessTest extends TestCase
         $this->assertSame(now()->toDateString(), Expense::query()->first()->spent_on->toDateString());
     }
 
+    /**
+     * Most expenses say enough through their category; a blank reason is
+     * saved, and the drawer line falls back to the category name.
+     */
+    public function test_an_expense_needs_no_reason(): void
+    {
+        $category = $this->category();
+
+        $this->actingAs($this->user('admin'))
+            ->post(route('admin.accounting.expenses.store'), [
+                'expense_category_id' => $category->id,
+                'amount' => '5',
+                'reason' => '',
+                'paid_from_cash' => true,
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $expense = Expense::query()->firstOrFail();
+
+        $this->assertSame('', $expense->reason);
+        $this->assertSame($category->name, $expense->cashMovements()->value('description'));
+    }
+
     public function test_an_absence_with_a_deduction_reaches_the_staff_account(): void
     {
         $admin = $this->user('admin');
@@ -179,7 +203,8 @@ class AccountingAccessTest extends TestCase
 
         $this->actingAs($admin)
             ->get(route('admin.accounting.cashbox'))
-            ->assertInertia(fn ($page) => $page->where('summary.balance_cents', 25000));
+            // On top of the 500 float the day opened on.
+            ->assertInertia(fn ($page) => $page->where('summary.balance_cents', 75000));
     }
 
     // ---------------------------------------------------------------
@@ -200,15 +225,16 @@ class AccountingAccessTest extends TestCase
         $this->actingAs($admin)
             ->post(route('admin.accounting.cashbox.close'), [
                 'date' => now()->toDateString(),
-                'counted' => '395',
+                'counted' => '895',
                 'notes' => 'نقص 5',
             ])
             ->assertRedirect();
 
         $closing = DailyClosing::query()->firstOrFail();
 
-        $this->assertSame(40000, $closing->expected_cents);
-        $this->assertSame(39500, $closing->counted_cents);
+        // The 500 float plus the bill.
+        $this->assertSame(90000, $closing->expected_cents);
+        $this->assertSame(89500, $closing->counted_cents);
         $this->assertSame(-500, $closing->difference_cents);
         $this->assertSame($admin->id, $closing->closed_by);
     }

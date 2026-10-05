@@ -21,6 +21,8 @@ const props = defineProps({
     absences: { type: Object, required: true },
     cashbox: { type: Object, required: true },
     orders: { type: Object, required: true },
+    products: { type: Object, required: true },
+    tables: { type: Object, required: true },
     ledger: { type: Array, required: true },
     staffReport: { type: Object, default: null },
 });
@@ -32,6 +34,77 @@ const { money, signed } = useMoney();
 // did the 500 go" — and putting the second behind a toggle keeps the
 // first readable, which is the one glanced at most.
 const showLedger = ref(false);
+
+/**
+ * "Best selling" is two different questions and the answers disagree.
+ *
+ * Water outsells everything by units and earns almost nothing; a mixed
+ * grill sells a handful and carries the night. Sorting one way and calling
+ * it "the answer" hides whichever half the owner needed — so both are one
+ * tap apart, and the column being sorted on is the one marked.
+ *
+ * Sorted on the client because every row is already here: the server sends
+ * the whole list, and a round-trip to reorder forty rows would be slower
+ * than the reorder.
+ */
+const productSort = ref('quantity');
+
+const sortedProducts = computed(() => {
+    const rows = [...(props.products?.rows ?? [])];
+
+    return rows.sort((a, b) => (productSort.value === 'quantity'
+        ? b.quantity - a.quantity
+        : b.gross_cents - a.gross_cents));
+});
+
+/**
+ * The widest bar is the top row, whatever is being sorted on — so the bars
+ * always fill the column rather than all bunching at the left on a day when
+ * nothing sold much.
+ */
+const productBarMax = computed(() => {
+    const rows = sortedProducts.value;
+
+    if (rows.length === 0) return 1;
+
+    return productSort.value === 'quantity'
+        ? Math.max(...rows.map((r) => r.quantity), 1)
+        : Math.max(...rows.map((r) => r.gross_cents), 1);
+});
+
+function productBarWidth(row) {
+    const value = productSort.value === 'quantity' ? row.quantity : row.gross_cents;
+
+    return `${Math.max(2, (value / productBarMax.value) * 100)}%`;
+}
+
+/**
+ * The head of the products ranking, for the "top" tab.
+ *
+ * Cut from the products tab's own rows rather than sent separately, so the
+ * two tabs cannot name different best sellers. By units: "what sells the
+ * most" asked without qualification means how many went out, and the
+ * products tab is one tap away for the money view.
+ */
+const TOP_PRODUCTS = 10;
+
+const topProducts = computed(() => [...(props.products?.rows ?? [])]
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, TOP_PRODUCTS));
+
+const topProductMax = computed(() => Math.max(1, ...topProducts.value.map((row) => row.quantity)));
+
+// Tables nobody sat at come after the ranking, not inside it — they are the
+// answer to a different question ("which corner is dead") and a bar of
+// zero width beside a rank number reads as a rendering fault.
+const usedTables = computed(() => (props.tables?.rows ?? []).filter((row) => !row.is_idle));
+const idleTables = computed(() => (props.tables?.rows ?? []).filter((row) => row.is_idle));
+
+const tableMax = computed(() => Math.max(1, ...usedTables.value.map((row) => row.visits)));
+
+function barWidth(value, max) {
+    return `${Math.max(2, (value / max) * 100)}%`;
+}
 
 // The browser's own print, deliberately, rather than a server-rendered PDF.
 // The report is already on the page with the range and filters the operator
@@ -133,7 +206,7 @@ const periodLabel = computed(() => {
     return `${side(props.filters.from, props.filters.from_time)} — ${side(props.filters.to, props.filters.to_time)}`;
 });
 
-const tabs = ['expenses', 'absences', 'cashbox', 'orders', 'staff'];
+const tabs = ['expenses', 'absences', 'cashbox', 'orders', 'products', 'top', 'staff'];
 
 const selectClass = 'focus-brand block w-full rounded-md border-gray-300 py-1.5 text-sm shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300';
 </script>
@@ -181,7 +254,9 @@ const selectClass = 'focus-brand block w-full rounded-md border-gray-300 py-1.5 
                 <select :class="selectClass" :value="filters.user_id ?? ''"
                         @change="reload({ user_id: $event.target.value || null })">
                     <option value="">{{ $t('accounting.all_staff') }}</option>
-                    <option v-for="member in staff" :key="member.id" :value="member.id">{{ member.name }}</option>
+                    <option v-for="member in staff" :key="member.id" :value="member.id">
+                        {{ member.deleted ? `${member.name} (${$t('admin.users.deleted_account')})` : member.name }}
+                    </option>
                 </select>
                 <!-- A plain link, not an Inertia visit: the response is a
                      file, and Inertia would try to parse it as a page. -->
@@ -315,6 +390,229 @@ const selectClass = 'focus-brand block w-full rounded-md border-gray-300 py-1.5 
              box beside it: this is what was sold, that is what is in the
              drawer, and a card payment or a table still open makes them
              different numbers. -->
+        <div v-else-if="filters.tab === 'products'">
+            <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <StatCard :label="$t('accounting.units_sold')" :value="String(products.totals.quantity)" tone="neutral" />
+                <StatCard :label="$t('accounting.gross')" :value="money(products.totals.gross_cents)" tone="in" />
+                <StatCard :label="$t('accounting.products_sold')" :value="String(products.totals.products_count)" tone="neutral" />
+            </div>
+
+            <!-- Sections before line items: the shape of the trade before
+                 the detail of it. Which half of the menu is carrying the
+                 other is the question an owner asks first. -->
+            <template v-if="products.by_category.length">
+                <h3 class="mb-2 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300">{{ $t('accounting.by_section') }}</h3>
+                <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+                        <thead class="bg-gray-50 dark:bg-gray-900/60">
+                            <tr class="text-xs uppercase text-gray-500">
+                                <th class="px-3 py-2 text-start">{{ $t('accounting.section') }}</th>
+                                <th class="px-3 py-2 text-end">{{ $t('accounting.units_sold') }}</th>
+                                <th class="px-3 py-2 text-end">{{ $t('accounting.gross') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                            <tr v-for="row in products.by_category" :key="row.category_id ?? 'none'">
+                                <td class="px-3 py-2">{{ row.name ?? $t('accounting.no_section') }}</td>
+                                <td class="px-3 py-2 text-end tabular-nums">{{ row.quantity }}</td>
+                                <td class="px-3 py-2 text-end font-semibold tabular-nums">{{ money(row.gross_cents) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </template>
+
+            <div class="mb-2 mt-6 flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ $t('accounting.best_sellers') }}</h3>
+
+                <!-- Two questions, one tap apart. Hidden on paper: the
+                     printout is already sorted the way it was asked for. -->
+                <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800 print:hidden">
+                    <button
+                        v-for="option in ['quantity', 'revenue']"
+                        :key="option"
+                        type="button"
+                        class="rounded-md px-3 py-1 text-xs font-medium transition"
+                        :class="productSort === option
+                            ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-gray-100'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                        @click="productSort = option"
+                    >
+                        {{ option === 'quantity' ? $t('accounting.sort_by_quantity') : $t('accounting.sort_by_revenue') }}
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+                    <thead class="bg-gray-50 dark:bg-gray-900/60">
+                        <tr class="text-xs uppercase text-gray-500">
+                            <th class="w-10 px-3 py-2 text-end">#</th>
+                            <th class="px-3 py-2 text-start">{{ $t('accounting.product') }}</th>
+                            <th class="px-3 py-2 text-end" :class="productSort === 'quantity' && 'text-gray-900 dark:text-gray-200'">
+                                {{ $t('accounting.units_sold') }}
+                            </th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.bills') }}</th>
+                            <th class="px-3 py-2 text-end" :class="productSort === 'revenue' && 'text-gray-900 dark:text-gray-200'">
+                                {{ $t('accounting.gross') }}
+                            </th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.share_of_sales') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                        <tr v-for="(row, index) in sortedProducts" :key="row.product_id ?? row.name">
+                            <td class="px-3 py-2 text-end text-xs tabular-nums text-gray-400">{{ index + 1 }}</td>
+                            <td class="px-3 py-2">
+                                {{ row.name }}
+                                <!-- The bar is the ranking made readable: a
+                                     column of numbers tells you the order,
+                                     this tells you the gap. -->
+                                <div class="mt-1 h-1 w-full max-w-[14rem] overflow-hidden rounded-full bg-gray-100 print:hidden dark:bg-gray-800">
+                                    <div class="h-full rounded-full" :style="{ width: productBarWidth(row), backgroundColor: 'var(--brand-primary)' }"></div>
+                                </div>
+                            </td>
+                            <td class="px-3 py-2 text-end tabular-nums" :class="productSort === 'quantity' && 'font-semibold'">{{ row.quantity }}</td>
+                            <td class="px-3 py-2 text-end text-xs tabular-nums text-gray-500">{{ row.orders_count }}</td>
+                            <td class="px-3 py-2 text-end tabular-nums" :class="productSort === 'revenue' && 'font-semibold'">{{ money(row.gross_cents) }}</td>
+                            <td class="px-3 py-2 text-end text-xs tabular-nums text-gray-500">{{ row.share }}%</td>
+                        </tr>
+                        <tr v-if="sortedProducts.length === 0">
+                            <td colspan="6" class="px-3 py-6 text-center text-gray-500">{{ $t('accounting.no_movements') }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Said here rather than left to be discovered: this tab and
+                 the orders tab report different numbers on purpose. -->
+            <p class="mt-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('accounting.gross_note') }}</p>
+        </div>
+
+        <!-- Best sellers and busiest tables, side by side in one place. -->
+        <div v-else-if="filters.tab === 'top'">
+            <!-- The two answers in a sentence each before any table: most
+                 people opening this tab want exactly these two names. -->
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+                    <p class="text-xs font-medium text-gray-600 dark:text-gray-400">🏆 {{ $t('accounting.top_product') }}</p>
+                    <template v-if="topProducts.length">
+                        <p class="mt-1.5 text-xl font-bold text-gray-900 dark:text-gray-100">{{ topProducts[0].name }}</p>
+                        <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                            {{ $t('accounting.sold_times', { n: topProducts[0].quantity }) }}
+                            <span aria-hidden="true"> · </span>
+                            <span class="tabular-nums">{{ money(topProducts[0].gross_cents) }}</span>
+                        </p>
+                    </template>
+                    <p v-else class="mt-1.5 text-sm text-gray-500">{{ $t('accounting.no_movements') }}</p>
+                </div>
+
+                <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/50 dark:bg-blue-950/30">
+                    <p class="text-xs font-medium text-gray-600 dark:text-gray-400">🪑 {{ $t('accounting.top_table') }}</p>
+                    <template v-if="usedTables.length">
+                        <p class="mt-1.5 text-xl font-bold text-gray-900 dark:text-gray-100">{{ usedTables[0].label }}</p>
+                        <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                            {{ $t('accounting.used_times', { n: usedTables[0].visits }) }}
+                            <span aria-hidden="true"> · </span>
+                            <span class="tabular-nums">{{ money(usedTables[0].collected_cents) }}</span>
+                        </p>
+                    </template>
+                    <p v-else class="mt-1.5 text-sm text-gray-500">{{ $t('accounting.no_movements') }}</p>
+                </div>
+            </div>
+
+            <div class="mb-2 mt-6 flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ $t('accounting.top_products') }}</h3>
+                <button type="button" class="text-xs font-medium hover:underline print:hidden"
+                        :style="{ color: 'var(--brand-primary)' }"
+                        @click="reload({ tab: 'products' })">
+                    {{ $t('accounting.see_all_products') }}
+                </button>
+            </div>
+
+            <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+                    <thead class="bg-gray-50 dark:bg-gray-900/60">
+                        <tr class="text-xs uppercase text-gray-500">
+                            <th class="w-10 px-3 py-2 text-end">#</th>
+                            <th class="px-3 py-2 text-start">{{ $t('accounting.product') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.units_sold') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.gross') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                        <tr v-for="(row, index) in topProducts" :key="row.product_id ?? row.name">
+                            <td class="px-3 py-2 text-end text-xs tabular-nums text-gray-400">{{ index + 1 }}</td>
+                            <td class="px-3 py-2">
+                                {{ row.name }}
+                                <div class="mt-1 h-1 w-full max-w-[14rem] overflow-hidden rounded-full bg-gray-100 print:hidden dark:bg-gray-800">
+                                    <div class="h-full rounded-full" :style="{ width: barWidth(row.quantity, topProductMax), backgroundColor: 'var(--brand-primary)' }"></div>
+                                </div>
+                            </td>
+                            <td class="px-3 py-2 text-end font-semibold tabular-nums">{{ row.quantity }}</td>
+                            <td class="px-3 py-2 text-end tabular-nums">{{ money(row.gross_cents) }}</td>
+                        </tr>
+                        <tr v-if="topProducts.length === 0">
+                            <td colspan="4" class="px-3 py-6 text-center text-gray-500">{{ $t('accounting.no_movements') }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="mb-2 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300">{{ $t('accounting.top_tables') }}</h3>
+
+            <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+                    <thead class="bg-gray-50 dark:bg-gray-900/60">
+                        <tr class="text-xs uppercase text-gray-500">
+                            <th class="w-10 px-3 py-2 text-end">#</th>
+                            <th class="px-3 py-2 text-start">{{ $t('tables.title') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.times_used') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.guests') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.collected') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.average_ticket') }}</th>
+                            <th class="px-3 py-2 text-end">{{ $t('accounting.typical_stay') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                        <tr v-for="(row, index) in usedTables" :key="row.key">
+                            <td class="px-3 py-2 text-end text-xs tabular-nums text-gray-400">{{ index + 1 }}</td>
+                            <td class="px-3 py-2">
+                                {{ row.label }}
+                                <div class="mt-1 h-1 w-full max-w-[14rem] overflow-hidden rounded-full bg-gray-100 print:hidden dark:bg-gray-800">
+                                    <div class="h-full rounded-full" :style="{ width: barWidth(row.visits, tableMax), backgroundColor: 'var(--brand-primary)' }"></div>
+                                </div>
+                            </td>
+                            <td class="px-3 py-2 text-end font-semibold tabular-nums">
+                                {{ row.visits }}
+                                <span class="ms-1 text-xs font-normal text-gray-400">{{ row.share }}%</span>
+                            </td>
+                            <td class="px-3 py-2 text-end tabular-nums">{{ row.guests ?? '—' }}</td>
+                            <td class="px-3 py-2 text-end tabular-nums">{{ money(row.collected_cents) }}</td>
+                            <td class="px-3 py-2 text-end tabular-nums text-gray-600 dark:text-gray-400">{{ money(row.average_cents) }}</td>
+                            <td class="px-3 py-2 text-end text-xs tabular-nums text-gray-600 dark:text-gray-400">
+                                <template v-if="row.typical_minutes === null">—</template>
+                                <template v-else-if="row.typical_minutes < 60">{{ $t('accounting.duration_minutes', { m: row.typical_minutes }) }}</template>
+                                <template v-else>{{ $t('accounting.duration_hours', { h: Math.floor(row.typical_minutes / 60), m: row.typical_minutes % 60 }) }}</template>
+                            </td>
+                        </tr>
+                        <tr v-for="row in idleTables" :key="row.key" class="text-gray-400">
+                            <td class="px-3 py-2"></td>
+                            <td class="px-3 py-2">{{ row.label }}</td>
+                            <td colspan="5" class="px-3 py-2 text-end text-xs">{{ $t('accounting.table_idle') }}</td>
+                        </tr>
+                        <tr v-if="usedTables.length === 0 && idleTables.length === 0">
+                            <td colspan="7" class="px-3 py-6 text-center text-gray-500">{{ $t('accounting.no_movements') }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p v-if="tables.takeaway.visits > 0" class="mt-3 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+                {{ $t('accounting.takeaway_note', { n: tables.takeaway.visits, amount: money(tables.takeaway.collected_cents) }) }}
+            </p>
+            <p class="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('accounting.tables_note') }}</p>
+        </div>
+
         <div v-else-if="filters.tab === 'orders'">
             <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <StatCard :label="$t('accounting.orders_count')" :value="String(orders.totals.orders_count)" tone="neutral" />

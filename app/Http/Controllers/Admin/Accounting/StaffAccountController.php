@@ -42,7 +42,13 @@ class StaffAccountController extends Controller
             ->pluck('balance', 'user_id');
 
         return Inertia::render('Admin/Accounting/Staff/Index', [
-            'staff' => User::query()
+            // Someone deleted while they still owe, or are owed, stays on
+            // the list until it's settled — deleting the account must not
+            // quietly write off the money.
+            'staff' => User::withTrashed()
+                ->where(fn ($query) => $query
+                    ->whereNull('deleted_at')
+                    ->orWhereIn('id', $balances->filter()->keys()))
                 ->orderBy('name')
                 ->get()
                 ->map(fn (User $user) => [
@@ -50,6 +56,7 @@ class StaffAccountController extends Controller
                     'name' => $user->name,
                     'roles' => $user->getRoleNames(),
                     'balance_cents' => (int) ($balances[$user->id] ?? 0),
+                    'deleted' => $user->trashed(),
                 ]),
         ]);
     }
@@ -60,7 +67,7 @@ class StaffAccountController extends Controller
             'staffMember' => [
                 'id' => $user->id,
                 'name' => $user->name,
-                'email' => $user->email,
+                'username' => $user->username,
                 'roles' => $user->getRoleNames(),
             ],
             'summary' => $this->ledger->summary($user),

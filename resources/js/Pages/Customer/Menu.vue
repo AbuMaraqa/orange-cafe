@@ -440,6 +440,47 @@ function submitFeedback() {
                     </nav>
                 </div>
 
+                <!-- Guests who have never ordered from a QR menu read it as
+                     a picture of the paper one and wait for the waiter. Said
+                     once, above the sections, before they start browsing.
+                     Only with a table in the URL: without one the cart
+                     cannot send, and the card would promise what it can't. -->
+                <div
+                    v-if="tableId && trail.length === 0"
+                    class="relative mb-6 overflow-hidden rounded-2xl border border-gray-100 p-4 dark:border-gray-800"
+                >
+                    <span class="absolute inset-0" :style="{ backgroundColor: branding.primary_color, opacity: 0.06 }"></span>
+
+                    <div class="relative flex items-start gap-3">
+                        <span
+                            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white shadow-sm"
+                            :style="{ backgroundColor: branding.primary_color }"
+                        >
+                            <NavIcon name="smartphone" class="h-5 w-5" />
+                        </span>
+                        <div class="min-w-0">
+                            <p class="text-[15px] font-bold text-gray-900 dark:text-gray-100">{{ t('menu.order_here_title') }}</p>
+                            <p class="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ t('menu.order_here_subtitle') }}</p>
+                        </div>
+                    </div>
+
+                    <ol class="relative mt-4 grid grid-cols-3 gap-2">
+                        <li
+                            v-for="(step, index) in ['menu.order_step_pick', 'menu.order_step_add', 'menu.order_step_send']"
+                            :key="step"
+                            class="flex flex-col items-center gap-1.5 rounded-xl bg-white/80 px-1 py-2.5 text-center dark:bg-gray-900/80"
+                        >
+                            <span
+                                class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
+                                :style="{ backgroundColor: branding.primary_color }"
+                            >
+                                {{ index + 1 }}
+                            </span>
+                            <span class="text-xs font-semibold leading-tight text-gray-800 dark:text-gray-200">{{ t(step) }}</span>
+                        </li>
+                    </ol>
+                </div>
+
                 <div v-if="currentCategory" class="mb-5">
                     <h2 class="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{{ currentCategory.name }}</h2>
                     <p v-if="currentCategory.description" class="mt-1 text-sm leading-relaxed text-gray-500 dark:text-gray-400">

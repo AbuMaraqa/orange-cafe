@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -111,8 +112,12 @@ class ImportFromMysqlCommand extends Command
         if ($pretend) {
             $this->comment('Pretend run — nothing was written.');
         } else {
+            // An installation from before usernames: its accounts arrive
+            // with none, and would have nothing to log in with.
+            User::fillMissingUsernamesFromEmail();
+
             $this->info('Import complete.');
-            $this->line('Log in with the accounts from the old installation; passwords carried over unchanged.');
+            $this->line('Log in with the accounts from the old installation: the old email is the username, and passwords carried over unchanged.');
         }
 
         return self::SUCCESS;

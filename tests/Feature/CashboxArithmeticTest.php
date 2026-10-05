@@ -21,6 +21,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use RuntimeException;
+use Tests\Concerns\SetsCashboxFloat;
 use Tests\TestCase;
 
 /**
@@ -34,7 +35,7 @@ use Tests\TestCase;
  */
 class CashboxArithmeticTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SetsCashboxFloat;
 
     private string $today;
 
@@ -47,6 +48,10 @@ class CashboxArithmeticTest extends TestCase
         $this->seed(PermissionSeeder::class);
 
         $this->today = now()->toDateString();
+
+        // One rule at a time, against an empty drawer: the float the café
+        // opens on would otherwise be a term in every figure below.
+        $this->floatOf(0);
     }
 
     private function user(string $name = 'أحمد', string $role = 'waiter'): User
@@ -475,12 +480,13 @@ class CashboxArithmeticTest extends TestCase
     }
 
     /**
-     * The counted figure carries forward, not the expected one. Carrying
-     * the expected figure would bury a shortfall and every following day
-     * would inherit it.
+     * Last night's count stays on last night's closing. The owner takes
+     * everything above the float home, so the morning starts on the float
+     * however much was counted.
      */
-    public function test_tomorrow_opens_on_what_was_actually_counted(): void
+    public function test_tomorrow_opens_on_the_float_not_on_what_was_counted(): void
     {
+        $this->floatOf(50000);
         $admin = $this->user('مدير', 'admin');
         $yesterday = now()->subDay()->toDateString();
 
@@ -504,8 +510,8 @@ class CashboxArithmeticTest extends TestCase
 
         app(DayCloser::class)->close($yesterday, countedCents: 95000, notes: null, by: $admin);
 
-        $this->assertSame(95000, $this->cashbox()->openingCents($this->today));
-        $this->assertSame(95000, $this->cashbox()->day($this->today)['balance_cents']);
+        $this->assertSame(50000, $this->cashbox()->openingCents($this->today));
+        $this->assertSame(50000, $this->cashbox()->day($this->today)['balance_cents']);
     }
 
     public function test_a_day_cannot_be_closed_twice(): void
@@ -546,10 +552,9 @@ class CashboxArithmeticTest extends TestCase
     {
         $admin = $this->user('مدير', 'admin');
         $ahmad = $this->user('أحمد');
-        $yesterday = now()->subDay()->toDateString();
 
-        // Yesterday left 100,00 in the drawer.
-        app(DayCloser::class)->close($yesterday, countedCents: 100000, notes: null, by: $admin);
+        // The drawer opens on 1000,00 of change.
+        $this->floatOf(100000);
 
         // Today: 600,00 taken, a bill discounted by 50,00 along the way.
         $this->paidOrder(totalCents: 60000, collectedCents: 60000, discountCents: 5000);

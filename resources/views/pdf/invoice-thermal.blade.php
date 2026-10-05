@@ -118,6 +118,43 @@
             <td>{{ $labels['payment_status'] }}</td>
             <td class="end">{{ $order->isPaid() ? $labels['paid'] : $labels['unpaid'] }}</td>
         </tr>
+        @php
+            // How the money arrived, read off the payment timeline rather
+            // than off the bill's own column: a table that put half on a card
+            // and half in cash has two answers, and the column keeps only the
+            // last one. Empty for a bill nobody has paid anything towards.
+            $collectedByMethod = $order->collectedByMethod();
+        @endphp
+        @if ($collectedByMethod !== [])
+            {{-- One line when the bill was settled one way, which is nearly
+                 all of them. The amounts appear only when they are needed to
+                 read the line, i.e. when the money came in more than one
+                 way — a receipt that says "Cash 0.00 / Card 12.50" on every
+                 card sale is noise on a 58mm roll. --}}
+            @if (count($collectedByMethod) === 1)
+                <tr>
+                    <td>{{ $labels['payment_method'] }}</td>
+                    <td class="end">{{ $labels['payment_methods'][array_key_first($collectedByMethod)] ?? array_key_first($collectedByMethod) }}</td>
+                </tr>
+            @else
+                <tr><td colspan="2">{{ $labels['payment_method'] }}</td></tr>
+                @foreach ($collectedByMethod as $method => $cents)
+                    <tr>
+                        <td>&nbsp;&nbsp;{{ $labels['payment_methods'][$method] ?? $method }}</td>
+                        <td class="end"><span class="currency">{{ $currencySymbol }}</span>{{ number_format($cents / 100, 2) }}</td>
+                    </tr>
+                @endforeach
+            @endif
+            {{-- The terminal's own number for the charge. On the customer's
+                 copy so a disputed line on their statement can be matched to
+                 this bill without the café going through a day's paperwork. --}}
+            @foreach ($order->cardReferences() as $cardReference)
+                <tr>
+                    <td>{{ $labels['payment_reference'] }}</td>
+                    <td class="end">{{ $cardReference }}</td>
+                </tr>
+            @endforeach
+        @endif
         @if ($order->isPaid() && $order->amount_paid_cents !== null && $order->amount_paid_cents !== $order->total_cents)
             <tr>
                 <td>{{ $labels['amount_paid'] }}</td>

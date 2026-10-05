@@ -39,6 +39,9 @@ class RestaurantSettingController extends Controller
                 'wifi_password' => $settings->wifi_password,
                 'receipt_footer_text' => $settings->receipt_footer_text,
                 'business_day_starts_at' => $settings->business_day_starts_at,
+                // In currency units, as the box is typed in — the request
+                // turns it back into cents.
+                'cashbox_float' => number_format($settings->cashbox_float_cents / 100, 2, '.', ''),
             ],
         ]);
     }

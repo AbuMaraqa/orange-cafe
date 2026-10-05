@@ -36,12 +36,12 @@ class DailyClosing extends Model
 
     public function closedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'closed_by');
+        return $this->belongsTo(User::class, 'closed_by')->withTrashed();
     }
 
     public function reopenedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'reopened_by');
+        return $this->belongsTo(User::class, 'reopened_by')->withTrashed();
     }
 
     /**

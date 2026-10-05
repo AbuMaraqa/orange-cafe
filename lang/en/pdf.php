@@ -15,6 +15,17 @@ return [
     'subtotal' => 'Subtotal',
     'total' => 'Total',
     'payment_status' => 'Payment Status',
+
+    // How the money arrived, printed on the customer's copy. The reference is
+    // the card terminal's own number for the charge, so a disputed line on a
+    // statement can be traced back to this bill without a day's paperwork.
+    'payment_method' => 'Payment Method',
+    'payment_reference' => 'Reference No.',
+    'payment_methods' => [
+        'cash' => 'Cash',
+        'card' => 'Visa / Card',
+    ],
+
     'paid' => 'Paid',
     'unpaid' => 'Unpaid',
     'amount_paid' => 'Amount Paid',
@@ -48,7 +59,7 @@ return [
         'printed_by' => 'Printed by',
 
         'opening' => 'Opening float',
-        'collected' => 'Collected from orders',
+        'collected' => 'Cash from orders',
         'manual_in' => 'Cash in',
         'total_in' => 'Total in',
         'expenses' => 'Cash expenses',
@@ -64,8 +75,32 @@ return [
 
         'orders_count' => 'Orders',
         'staff_deductions' => 'Staff deductions',
+        'card_collected' => 'Card takings',
         'bill_discounts' => 'Bill discounts',
         'not_in_drawer' => 'For information — not taken from the drawer',
+
+        // What went out of the kitchen and the bar tonight, read after the
+        // drawer has been counted. Computed in Cashbox::itemsSold() from the
+        // bills settled today.
+        'items_sold' => 'Items sold',
+        'items_none' => 'No items on this day’s bills',
+        'items_quantity' => 'Total quantity',
+        'gross_sales' => 'Gross sales',
+        'sales_discount' => 'Bill discounts',
+        'net_sales' => 'Net sales',
+        'bills_count' => 'Bills',
+
+        // Every bill that paid today, one by one, with how it was paid. The
+        // totals under the list are the cash box's own figures (cash = cash
+        // from orders, card = card takings), read off the same payments —
+        // Cashbox::ordersCollected().
+        'orders_detail' => 'Orders',
+        'orders_none' => 'No orders were paid on this day',
+        'split_payment' => 'Split',
+        'part_payment' => 'Part payment',
+        'refund' => 'Refund',
+        'payment_summary' => 'Totals by payment method',
+        'orders_total' => 'Total collected',
 
         'day_closed' => 'Day closed',
         'day_open' => 'Day still open',

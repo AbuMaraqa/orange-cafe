@@ -18,7 +18,7 @@ const user = usePage().props.auth.user;
 
 const form = useForm({
     name: user.name,
-    email: user.email,
+    username: user.username,
 });
 </script>
 
@@ -55,18 +55,20 @@ const form = useForm({
             </div>
 
             <div>
-                <InputLabel for="email" :value="$t('auth.email')" />
+                <InputLabel for="username" :value="$t('auth.username')" />
 
                 <TextInput
-                    id="email"
-                    type="email"
+                    id="username"
+                    type="text"
                     class="mt-1 block w-full"
-                    v-model="form.email"
+                    v-model="form.username"
                     required
                     autocomplete="username"
+                    autocapitalize="none"
+                    spellcheck="false"
                 />
 
-                <InputError class="mt-2" :message="form.errors.email" />
+                <InputError class="mt-2" :message="form.errors.username" />
             </div>
 
             <div v-if="mustVerifyEmail && user.email_verified_at === null">

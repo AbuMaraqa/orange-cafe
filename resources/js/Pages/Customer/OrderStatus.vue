@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import NavIcon from '@/Components/NavIcon.vue';
 import { useOrderStatus } from '@/composables/useOrderStatus';
@@ -21,6 +21,47 @@ function formatPrice(cents) {
 }
 
 const itemCount = computed(() => props.order.items.reduce((sum, item) => sum + item.quantity, 0));
+
+/**
+ * Until a waiter confirms the order, a guest can change what they ordered
+ * from this phone — their own share of each line and nobody else's. The
+ * server decides both (`editable`, `mine`); this only draws the buttons.
+ *
+ * On a line two guests ordered into, the stepper moves this guest's share
+ * while showing the line's total, so taking their one juice off a line of
+ * two leaves the other one standing.
+ */
+const MAX_PER_LINE = 50;
+
+const canChange = (item) => props.order.editable && item.mine > 0;
+const ownsSomething = computed(() => props.order.items.some(canChange));
+const lockedAfterConfirm = computed(() => ['confirmed', 'ready'].includes(props.order.status) && !props.order.is_paid);
+
+/**
+ * The line a change is in flight for. Every stepper is held while one is,
+ * so two quick taps do not race each other to the server.
+ */
+const busyItem = ref(null);
+
+function changeLine(item, quantity) {
+    const params = { order: props.order.id, item: item.id };
+    const options = {
+        preserveScroll: true,
+        preserveState: true,
+        onStart: () => {
+            busyItem.value = item.id;
+        },
+        onFinish: () => {
+            busyItem.value = null;
+        },
+    };
+
+    if (quantity <= 0) {
+        router.delete(route('menu.orders.items.destroy', params), options);
+    } else {
+        router.patch(route('menu.orders.items.update', params), { quantity }, options);
+    }
+}
 
 /**
  * The menu for the table this order came from.
@@ -93,6 +134,10 @@ let timer = null;
 let pollingForStatus = null;
 
 function refresh() {
+    // A tick landing mid-change would cancel the guest's own request — the
+    // change's response brings the fresh order back anyway.
+    if (busyItem.value !== null) return;
+
     router.reload({ only: ['order'], preserveScroll: true, preserveState: true });
 }
 
@@ -212,6 +257,21 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
+        <!-- Too late: the waiter confirmed while this guest was changing it. -->
+        <div
+            v-if="page.props.errors?.order"
+            class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
+        >
+            {{ page.props.errors.order }}
+        </div>
+
+        <p
+            v-else-if="ownsSomething"
+            class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
+        >
+            {{ t('menu.edit_until_confirmed') }}
+        </p>
+
         <!-- The bill -->
         <div class="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3 dark:border-gray-800">
@@ -220,14 +280,17 @@ onBeforeUnmount(() => {
             </div>
 
             <div
-                v-for="(item, index) in order.items"
-                :key="index"
+                v-for="item in order.items"
+                :key="item.id"
                 class="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-3 last:border-0 dark:border-gray-800"
             >
                 <div class="flex min-w-0 items-start gap-3">
                     <!-- The quantity gets its own chip: on a shared table it is
-                         the number most likely to have changed since last look. -->
+                         the number most likely to have changed since last look.
+                         A line this guest can still change shows it in the
+                         stepper instead. -->
                     <span
+                        v-if="!canChange(item)"
                         class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
                         style="background-color: var(--brand-primary)"
                     >{{ item.quantity }}</span>
@@ -247,9 +310,46 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
-                <p class="shrink-0 text-sm font-medium text-gray-800 tabular-nums dark:text-gray-200">
-                    {{ formatPrice(item.subtotal_cents) }}
-                </p>
+                <div class="flex shrink-0 flex-col items-end gap-2">
+                    <p class="text-sm font-medium text-gray-800 tabular-nums dark:text-gray-200">
+                        {{ formatPrice(item.subtotal_cents) }}
+                    </p>
+
+                    <!-- At one, minus becomes the bin: one less of the last
+                         one is taking it off. -->
+                    <div
+                        v-if="canChange(item)"
+                        class="flex items-center rounded-lg border border-gray-200 transition-opacity dark:border-gray-700"
+                        :class="{ 'opacity-50': busyItem === item.id }"
+                    >
+                        <button
+                            type="button"
+                            class="flex h-8 w-8 items-center justify-center text-gray-600 disabled:cursor-not-allowed dark:text-gray-300"
+                            :disabled="busyItem !== null"
+                            :aria-label="item.mine === 1
+                                ? t('menu.remove_item', { name: item.product_name })
+                                : t('menu.decrease_item', { name: item.product_name })"
+                            @click="changeLine(item, item.mine - 1)"
+                        >
+                            <NavIcon v-if="item.mine === 1" name="trash" class="h-4 w-4 text-red-500" />
+                            <NavIcon v-else name="minus" class="h-4 w-4" />
+                        </button>
+
+                        <span class="w-7 text-center text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                            {{ item.quantity }}
+                        </span>
+
+                        <button
+                            type="button"
+                            class="flex h-8 w-8 items-center justify-center text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300"
+                            :disabled="busyItem !== null || item.mine >= MAX_PER_LINE"
+                            :aria-label="t('menu.increase_item', { name: item.product_name })"
+                            @click="changeLine(item, item.mine + 1)"
+                        >
+                            <NavIcon name="plus" class="h-4 w-4" />
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="flex items-center justify-between bg-gray-50 px-5 py-4 dark:bg-gray-950/50">
@@ -269,6 +369,8 @@ onBeforeUnmount(() => {
         </div>
 
         <p class="mt-3 text-center text-xs text-gray-400">{{ t('menu.shared_table_hint') }}</p>
+
+        <p v-if="lockedAfterConfirm" class="mt-1 text-center text-xs text-gray-400">{{ t('menu.locked_after_confirm') }}</p>
 
         <!-- Back to the menu this guest is actually sitting at.
              The QR code carries the table, and it is on the table — not in

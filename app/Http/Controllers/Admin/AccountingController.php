@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\OrderPayment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
@@ -24,7 +25,7 @@ class AccountingController extends Controller
             : now();
 
         $orders = Order::query()
-            ->with('createdBy', 'paidBy', 'table')
+            ->with('createdBy', 'paidBy', 'table', 'payments')
             ->whereDate('created_at', $date)
             ->where('status', '!=', 'cancelled')
             ->latest()
@@ -39,11 +40,31 @@ class AccountingController extends Controller
         $collectedCents = $paidOrders->sum(fn (Order $o) => $o->collectedCents());
         $roundingCents = $paidOrders->sum(fn (Order $o) => $o->total_cents - $o->collectedCents());
 
+        // How that money arrived. Read off the payment timeline rather than
+        // off each bill's own column, because a table that put half on a card
+        // and half in cash made two handovers and the column remembers only
+        // the last one — splitting on it would file the whole bill under
+        // whichever way it happened to finish.
+        //
+        // Card is the half that is known exactly; cash is what is left. That
+        // is the honest direction of the subtraction: a card payment can only
+        // exist by having been recorded as one, while everything predating the
+        // card reader — and anything the importer or a seeder wrote — is cash.
+        // Deriving cash instead of summing it also means the two halves cannot
+        // fail to add up to the figure printed above them, which on a screen
+        // built to trace money is the one thing that must not happen.
+        $cardCollectedCents = $paidOrders->sum(
+            fn (Order $o) => $o->collectedByMethod()[OrderPayment::METHOD_CARD] ?? 0
+        );
+        $cashCollectedCents = $collectedCents - $cardCollectedCents;
+
         return Inertia::render('Admin/Accounting/Index', [
             'date' => $date->toDateString(),
             'summary' => [
                 'total_orders' => $orders->count(),
                 'collected_cents' => $collectedCents,
+                'cash_collected_cents' => $cashCollectedCents,
+                'card_collected_cents' => $cardCollectedCents,
                 'rounding_cents' => $roundingCents,
                 'outstanding_cents' => $orders->whereNull('paid_at')->sum('total_cents'),
             ],
@@ -68,6 +89,13 @@ class AccountingController extends Controller
                 'is_paid' => $order->isPaid(),
                 'total_cents' => $order->total_cents,
                 'amount_paid_cents' => $order->amount_paid_cents,
+                // This screen is the accountability trail — who rang it up,
+                // who took the money — and after a card reader arrives "how"
+                // is part of that. Without it a row showing money collected
+                // gives no way to tell a note in the drawer from a charge
+                // that will land in the bank on Thursday.
+                'payment_method' => $order->payment_method,
+                'payment_reference' => $order->payment_reference,
                 'created_at' => $order->created_at->toIso8601String(),
             ]),
         ]);

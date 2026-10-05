@@ -45,6 +45,13 @@ return [
         'staff_accounts.post',
 
         'reports.view',
+
+        // The catalog: menus, sections, products, add-ons, tags, the call
+        // bell's services and the service-charge price list. Not money in
+        // the sense above — nothing here touches the takings or the drawer —
+        // but guarded the same way, so the till can be given it without
+        // being given the rest of the admin area.
+        'catalog.manage',
     ],
 
     /*
@@ -60,8 +67,14 @@ return [
     'roles' => [
         'admin' => '*',
 
-        // Nothing. The money side of the business is the owner's, and the
-        // till is not a window into it.
+        // The catalog, and nothing on the money side. The money side of the
+        // business is the owner's, and the till is not a window into it.
+        //
+        // The catalog is the till's because the person at the till is the
+        // one who hears "we're out of the kunafa" and "the new juice is 12
+        // now" first, and is standing next to a screen when they do. Adding
+        // a product or changing a price does not touch anything already on a
+        // bill — a line keeps the price it was rung up at.
         //
         // This does not touch what a cashier does all evening: taking
         // payment and applying a discount are guarded by *role*
@@ -77,7 +90,7 @@ return [
         // Worth knowing rather than discovering: `cashbox.close` is in here
         // too, so the nightly closing is now an admin's job. Somebody with
         // the admin role has to be present, or sign the day off afterwards.
-        'cashier' => [],
+        'cashier' => ['catalog.manage'],
     ],
 
 ];

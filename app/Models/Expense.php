@@ -35,12 +35,12 @@ class Expense extends Model
     /** The employee this expense is on, when it is on one. */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     public function recordedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'recorded_by');
+        return $this->belongsTo(User::class, 'recorded_by')->withTrashed();
     }
 
     /**

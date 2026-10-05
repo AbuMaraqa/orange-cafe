@@ -41,7 +41,7 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user()?->only(['id', 'name', 'email', 'locale']),
+                'user' => $request->user()?->only(['id', 'name', 'username', 'locale']),
                 'roles' => $request->user()?->getRoleNames() ?? [],
                 // Shared so the sidebar can hide the money screens from
                 // someone who would only be turned away at the door. The
@@ -63,6 +63,9 @@ class HandleInertiaRequests extends Middleware
                 // screen asks "am I staff" instead of re-deciding what staff
                 // means.
                 'is_staff' => fn () => $request->user()?->hasAnyRole(config('orders.placed_by_roles')) ?? false,
+                // Same idea for the one destructive button on a bill: the
+                // screen asks this rather than knowing which roles count.
+                'can_cancel_confirmed' => fn () => $request->user()?->hasAnyRole(config('orders.cancel_confirmed_roles')) ?? false,
             ],
             'locale' => [
                 'current' => $current,

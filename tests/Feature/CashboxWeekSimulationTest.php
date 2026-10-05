@@ -15,6 +15,7 @@ use Database\Seeders\LanguageSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SetsCashboxFloat;
 use Tests\TestCase;
 
 /**
@@ -22,9 +23,12 @@ use Tests\TestCase;
  *
  * CashboxArithmeticTest asserts each rule in isolation, which is the right
  * shape for a rule and the wrong shape for a drawer: every one of those tests
- * starts from an empty till, and the failure this subsystem is most exposed
- * to is the one that only appears on the fourth day, in a figure carried
- * forward three times.
+ * starts from an empty till, and the failures this subsystem is most exposed
+ * to only appear once days follow one another — a night closed short, a day
+ * reopened, an expense corrected after the fact.
+ *
+ * Every day here opens on the float, 500, the way the café runs: the owner
+ * closes at night, takes everything above it, and leaves it for the morning.
  *
  * So this does not test a rule. It runs a week — takings, a cash expense, an
  * advance to a waiter, an absence deduction, a refund, a float top-up, a
@@ -42,7 +46,10 @@ use Tests\TestCase;
  */
 class CashboxWeekSimulationTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SetsCashboxFloat;
+
+    /** What every morning opens on — see Cashbox::openingCents(). */
+    private const FLOAT = self::DEFAULT_FLOAT_CENTS;
 
     private const MON = '2026-03-02';
 
@@ -179,8 +186,9 @@ class CashboxWeekSimulationTest extends TestCase
 
     /**
      * The whole week, in order. One test rather than four, because the point
-     * is the carry: splitting it would reset the drawer between days and
-     * throw away the only thing being examined.
+     * is the sequence: each night's close has to leave the next morning on
+     * the float whatever it found, and that can only be seen with the nights
+     * in a row.
      */
     public function test_a_trading_week_reconciles_every_night(): void
     {
@@ -193,24 +201,25 @@ class CashboxWeekSimulationTest extends TestCase
 
         $monday = $this->cashbox()->day(self::MON);
 
-        $this->assertSame(0, $monday['opening_cents'], 'the first day starts from nothing');
+        $this->assertSame(self::FLOAT, $monday['opening_cents'], 'the first day opens on the float');
         $this->assertSame(15000, $monday['collected_cents']);
         $this->assertSame(2000, $monday['expenses_cents']);
-        $this->assertSame(13000, $monday['balance_cents']);
+        $this->assertSame(self::FLOAT + 13000, $monday['balance_cents']);
         $this->assertSame(3, $monday['orders_count']);
         $this->assertDayHolds(self::MON, 'Monday, before closing');
 
-        // Counted exactly. The drawer is handed over as 130.00.
-        app(DayCloser::class)->close(self::MON, 13000, null, $this->owner);
+        // Counted exactly. The owner takes the 130.00 and leaves the float.
+        app(DayCloser::class)->close(self::MON, self::FLOAT + 13000, null, $this->owner);
 
         $this->assertTrue($this->cashbox()->isClosed(self::MON));
         $this->assertSame(0, $this->cashbox()->closingFor(self::MON)->difference_cents);
 
         // ── Tuesday ─────────────────────────────────────────────────────
-        // Opens on what was counted. A waiter takes an advance out of the
-        // drawer, and is docked for a day off — one of those is cash and one
-        // is not, which is the distinction the whole class exists to keep.
-        $this->assertSame(13000, $this->cashbox()->openingCents(self::TUE));
+        // Opens on the float, not on Monday's count. A waiter takes an
+        // advance out of the drawer, and is docked for a day off — one of
+        // those is cash and one is not, which is the distinction the whole
+        // class exists to keep.
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::TUE));
 
         $this->sale(self::TUE.' 13:00:00', 6000);
         $this->sale(self::TUE.' 20:00:00', 5000, discountCents: 500);
@@ -228,10 +237,10 @@ class CashboxWeekSimulationTest extends TestCase
 
         $tuesday = $this->cashbox()->day(self::TUE);
 
-        $this->assertSame(13000, $tuesday['opening_cents']);
+        $this->assertSame(self::FLOAT, $tuesday['opening_cents']);
         $this->assertSame(11000, $tuesday['collected_cents']);
         $this->assertSame(8000, $tuesday['expenses_cents'], 'the advance left the drawer');
-        $this->assertSame(16000, $tuesday['balance_cents']);
+        $this->assertSame(self::FLOAT + 3000, $tuesday['balance_cents']);
 
         // Shown, never subtracted.
         $this->assertSame(4000, $tuesday['staff_deductions_cents']);
@@ -243,15 +252,16 @@ class CashboxWeekSimulationTest extends TestCase
         $this->assertSame(12000, $this->waiter->fresh()->staffBalanceCents());
 
         // Counted 20 short — somebody gave the wrong change.
-        app(DayCloser::class)->close(self::TUE, 15800, 'ناقص 2 شيكل', $this->owner);
+        app(DayCloser::class)->close(self::TUE, self::FLOAT + 2800, 'ناقص 2 شيكل', $this->owner);
 
         $this->assertSame(-200, $this->cashbox()->closingFor(self::TUE)->difference_cents);
         $this->assertSame('short', $this->cashbox()->closingFor(self::TUE)->differenceState());
 
         // ── Wednesday ───────────────────────────────────────────────────
-        // The shortage is carried, not buried: today opens on what was
-        // actually in the drawer, not on what Tuesday expected.
-        $this->assertSame(15800, $this->cashbox()->openingCents(self::WED));
+        // The shortage is not buried in Wednesday's float: it stays on
+        // Tuesday's closing, which names it, and the drawer is made up to
+        // the float again for the morning.
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::WED));
 
         $this->sale(self::WED.' 14:00:00', 9000);
         $this->movement(self::WED, CashMovement::OUT, CashMovement::TYPE_REFUND, 1500, 'إرجاع طلب');
@@ -264,29 +274,29 @@ class CashboxWeekSimulationTest extends TestCase
         $this->assertSame(5000, $wednesday['manual_in_cents']);
         $this->assertSame(21500, $wednesday['manual_out_cents'], 'the refund and the withdrawal');
         $this->assertSame(0, $wednesday['expenses_cents']);
-        $this->assertSame(8300, $wednesday['balance_cents']);
+        $this->assertSame(self::FLOAT - 7500, $wednesday['balance_cents']);
         $this->assertDayHolds(self::WED, 'Wednesday, before closing');
 
         // Counted 3 over.
-        app(DayCloser::class)->close(self::WED, 8600, 'زيادة 3', $this->owner);
+        app(DayCloser::class)->close(self::WED, self::FLOAT - 7200, 'زيادة 3', $this->owner);
 
         $this->assertSame(300, $this->cashbox()->closingFor(self::WED)->difference_cents);
         $this->assertSame('over', $this->cashbox()->closingFor(self::WED)->differenceState());
 
         // ── Thursday ────────────────────────────────────────────────────
-        $this->assertSame(8600, $this->cashbox()->openingCents(self::THU));
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::THU), 'nor is the surplus carried');
 
         $this->sale(self::THU.' 19:00:00', 4000);
         $thursdayExpense = $this->cashExpense(self::THU, 3000, 'قهوة');
 
-        $this->assertSame(9600, $this->cashbox()->day(self::THU)['balance_cents']);
+        $this->assertSame(self::FLOAT + 1000, $this->cashbox()->day(self::THU)['balance_cents']);
         $this->assertDayHolds(self::THU, 'Thursday, before the correction');
 
         // The invoice was 15, not 30 — corrected after the fact. All three
         // writes behind an expense have to move together.
         app(ExpenseRecorder::class)->update($thursdayExpense, ['amount_cents' => 1500]);
 
-        $this->assertSame(11100, $this->cashbox()->day(self::THU)['balance_cents']);
+        $this->assertSame(self::FLOAT + 2500, $this->cashbox()->day(self::THU)['balance_cents']);
         $this->assertSame(
             1,
             CashMovement::query()->whereDate('occurred_on', self::THU)->count(),
@@ -297,7 +307,7 @@ class CashboxWeekSimulationTest extends TestCase
         // It turned out to be a bank transfer, not cash at all.
         app(ExpenseRecorder::class)->update($thursdayExpense, ['paid_from_cash' => false]);
 
-        $this->assertSame(12600, $this->cashbox()->day(self::THU)['balance_cents']);
+        $this->assertSame(self::FLOAT + 4000, $this->cashbox()->day(self::THU)['balance_cents']);
         $this->assertSame(
             0,
             CashMovement::query()->whereDate('occurred_on', self::THU)->count(),
@@ -308,55 +318,50 @@ class CashboxWeekSimulationTest extends TestCase
 
     /**
      * Reopening Tuesday, correcting it, and closing it again — and what that
-     * does to every day after it.
+     * does to the day after it.
      *
      * Separate from the week above because it is a different question: not
-     * "does the arithmetic hold", but "what happens to four days of carried
-     * figures when somebody edits the middle of the week". A manager does
-     * this the morning after finding a mistake, and the answer has to be
-     * predictable.
+     * "does the arithmetic hold", but "what happens to the rest of the week
+     * when somebody edits the middle of it". A manager does this the morning
+     * after finding a mistake, and the answer has to be predictable — and it
+     * is: the correction lands on Tuesday, and Wednesday still opened on the
+     * float it was left with.
      */
-    public function test_correcting_a_night_after_the_fact_carries_forward(): void
+    public function test_correcting_a_night_after_the_fact_stays_on_that_night(): void
     {
         $this->sale(self::MON.' 12:00:00', 10000);
-        app(DayCloser::class)->close(self::MON, 10000, null, $this->owner);
+        app(DayCloser::class)->close(self::MON, self::FLOAT + 10000, null, $this->owner);
 
         $this->sale(self::TUE.' 12:00:00', 5000);
-        app(DayCloser::class)->close(self::TUE, 15000, null, $this->owner);
+        app(DayCloser::class)->close(self::TUE, self::FLOAT + 5000, null, $this->owner);
 
-        $this->assertSame(15000, $this->cashbox()->openingCents(self::WED));
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::WED));
 
-        // Tuesday is reopened. Until it is signed off again there is no count
-        // standing behind it, so Wednesday stops reading Tuesday's counted
-        // figure and reads what actually moved instead: Monday's count, plus
-        // Tuesday's own takings.
         app(DayCloser::class)->reopen(self::TUE, $this->owner);
 
         $this->assertFalse($this->cashbox()->isClosed(self::TUE));
-        $this->assertSame(15000, $this->cashbox()->openingCents(self::WED));
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::WED));
 
-        // A bill that had been missed is added to Tuesday. Wednesday follows
-        // it without anybody touching Wednesday — which is the whole point of
-        // carrying the movements rather than stopping at the last close.
+        // A bill that had been missed is added to Tuesday.
         $this->sale(self::TUE.' 22:00:00', 2000);
 
         $tuesday = $this->cashbox()->day(self::TUE);
         $this->assertSame(7000, $tuesday['collected_cents'], 'the late bill is on Tuesday');
-        $this->assertSame(17000, $tuesday['balance_cents']);
-        $this->assertSame(17000, $this->cashbox()->openingCents(self::WED));
+        $this->assertSame(self::FLOAT + 7000, $tuesday['balance_cents']);
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::WED), 'and only on Tuesday');
         $this->assertDayHolds(self::TUE, 'Tuesday, reopened and corrected');
 
         // Closed again on the real count. The figures are recomputed, not
         // the ones stored the first time.
-        app(DayCloser::class)->close(self::TUE, 17000, 'أُضيفت فاتورة كانت ناقصة', $this->owner);
+        app(DayCloser::class)->close(self::TUE, self::FLOAT + 7000, 'أُضيفت فاتورة كانت ناقصة', $this->owner);
 
         $closing = $this->cashbox()->closingFor(self::TUE);
 
         $this->assertTrue($closing->isClosed(), 'the reopen stamp is cleared by closing again');
         $this->assertNull($closing->reopened_at);
-        $this->assertSame(17000, $closing->expected_cents);
+        $this->assertSame(self::FLOAT + 7000, $closing->expected_cents);
         $this->assertSame(0, $closing->difference_cents);
-        $this->assertSame(17000, $this->cashbox()->openingCents(self::WED));
+        $this->assertSame(self::FLOAT, $this->cashbox()->openingCents(self::WED));
     }
 
     /**
@@ -368,11 +373,11 @@ class CashboxWeekSimulationTest extends TestCase
         $this->sale(self::MON.' 12:00:00', 10000);
         $expense = $this->cashExpense(self::MON, 2500, 'خضار');
 
-        $this->assertSame(7500, $this->cashbox()->day(self::MON)['balance_cents']);
+        $this->assertSame(self::FLOAT + 7500, $this->cashbox()->day(self::MON)['balance_cents']);
 
         app(ExpenseRecorder::class)->delete($expense);
 
-        $this->assertSame(10000, $this->cashbox()->day(self::MON)['balance_cents']);
+        $this->assertSame(self::FLOAT + 10000, $this->cashbox()->day(self::MON)['balance_cents']);
         $this->assertSame(0, CashMovement::query()->count(), 'and takes its movement with it');
         $this->assertDayHolds(self::MON, 'Monday, after the expense was removed');
     }
@@ -386,12 +391,12 @@ class CashboxWeekSimulationTest extends TestCase
         $this->sale(self::MON.' 12:00:00', 50000);
         $advance = $this->cashExpense(self::MON, 20000, 'سلفة', userId: $this->waiter->id);
 
-        $this->assertSame(30000, $this->cashbox()->day(self::MON)['balance_cents']);
+        $this->assertSame(self::FLOAT + 30000, $this->cashbox()->day(self::MON)['balance_cents']);
         $this->assertSame(20000, $this->waiter->fresh()->staffBalanceCents());
 
         app(ExpenseRecorder::class)->delete($advance);
 
-        $this->assertSame(50000, $this->cashbox()->day(self::MON)['balance_cents']);
+        $this->assertSame(self::FLOAT + 50000, $this->cashbox()->day(self::MON)['balance_cents']);
         $this->assertSame(0, $this->waiter->fresh()->staffBalanceCents());
         $this->assertDayHolds(self::MON, 'Monday, after the advance was removed');
     }

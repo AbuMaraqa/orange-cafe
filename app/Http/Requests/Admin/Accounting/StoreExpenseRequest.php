@@ -18,6 +18,11 @@ class StoreExpenseRequest extends FormRequest
     {
         $this->normaliseAmount('amount_cents');
         $this->defaultToToday('spent_on');
+
+        // Optional, but the column is not nullable: a blank reason is kept
+        // as '' and the category name stands in for it wherever the expense
+        // is described (see ExpenseRecorder::sync()).
+        $this->merge(['reason' => trim((string) $this->input('reason'))]);
     }
 
     public function rules(): array
@@ -34,7 +39,7 @@ class StoreExpenseRequest extends FormRequest
             'amount_cents' => ['required', 'integer', 'min:1'],
 
             'spent_on' => ['required', 'date'],
-            'reason' => ['required', 'string', 'max:255'],
+            'reason' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'paid_from_cash' => ['sometimes', 'boolean'],
         ];

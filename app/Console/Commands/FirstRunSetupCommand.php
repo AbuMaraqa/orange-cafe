@@ -103,15 +103,14 @@ class FirstRunSetupCommand extends Command
             return;
         }
 
-        $email = 'admin@localhost';
+        $username = 'admin';
         $password = Str::password(14, symbols: false);
 
         $admin = User::create([
             'name' => 'Administrator',
-            'email' => $email,
+            'username' => $username,
             'password' => $password,
             'locale' => 'en',
-            'email_verified_at' => now(),
         ]);
         $admin->assignRole('admin');
 
@@ -124,14 +123,14 @@ class FirstRunSetupCommand extends Command
         $credentialsPath = storage_path('first-run-credentials.txt');
         file_put_contents($credentialsPath, implode(PHP_EOL, [
             'Admin account (generated on first run)',
-            'Email:    '.$email,
+            'Username: '.$username,
             'Password: '.$password,
             '',
             'Change this password after logging in, then delete this file.',
         ]));
 
         $this->info("Admin account created — see {$credentialsPath}");
-        $this->line("  Email:    {$email}");
+        $this->line("  Username: {$username}");
         $this->line("  Password: {$password}");
     }
 

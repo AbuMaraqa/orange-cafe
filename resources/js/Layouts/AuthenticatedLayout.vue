@@ -23,6 +23,9 @@ const hasRole = (role) => roles.value.includes(role) || isAdmin.value;
 const permissions = computed(() => page.props.auth?.permissions ?? []);
 const can = (permission) => permissions.value.includes(permission);
 
+// Mirrors the catalog routes' role_or_permission:admin|catalog.manage.
+const canManageCatalog = computed(() => isAdmin.value || can('catalog.manage'));
+
 const sidebarOpen = ref(false);
 const collapsed = ref(typeof localStorage !== 'undefined' && localStorage.getItem('sidebar-collapsed') === '1');
 
@@ -61,14 +64,17 @@ const navGroups = computed(() => [
     },
     {
         title: t('nav.group_catalog'),
+        // The admin by role or anyone with the permission — the same rule as
+        // the routes (role_or_permission:admin|catalog.manage), which is how
+        // the till is given the catalog without the rest of the admin area.
         items: [
-            { label: t('nav.menus'), icon: 'book', route: 'admin.menus.index', visible: isAdmin.value },
-            { label: t('nav.categories'), icon: 'grid', route: 'admin.categories.index', visible: isAdmin.value },
-            { label: t('nav.products'), icon: 'tag', route: 'admin.products.index', visible: isAdmin.value },
-            { label: t('nav.modifier_groups'), icon: 'sliders', route: 'admin.modifier-groups.index', visible: isAdmin.value },
-            { label: t('nav.tags'), icon: 'tag', route: 'admin.tags.index', visible: isAdmin.value },
-            { label: t('nav.services'), icon: 'bell', route: 'admin.services.index', visible: isAdmin.value },
-            { label: t('nav.service_charges'), icon: 'clock', route: 'admin.service-charges.index', visible: isAdmin.value },
+            { label: t('nav.menus'), icon: 'book', route: 'admin.menus.index', visible: canManageCatalog.value },
+            { label: t('nav.categories'), icon: 'grid', route: 'admin.categories.index', visible: canManageCatalog.value },
+            { label: t('nav.products'), icon: 'tag', route: 'admin.products.index', visible: canManageCatalog.value },
+            { label: t('nav.modifier_groups'), icon: 'sliders', route: 'admin.modifier-groups.index', visible: canManageCatalog.value },
+            { label: t('nav.tags'), icon: 'tag', route: 'admin.tags.index', visible: canManageCatalog.value },
+            { label: t('nav.services'), icon: 'bell', route: 'admin.services.index', visible: canManageCatalog.value },
+            { label: t('nav.service_charges'), icon: 'clock', route: 'admin.service-charges.index', visible: canManageCatalog.value },
         ],
     },
     {

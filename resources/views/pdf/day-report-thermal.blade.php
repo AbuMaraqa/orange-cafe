@@ -6,9 +6,11 @@
     off the same roll and a manager reading one after the other should not
     have to re-learn where to look.
 
-    Every figure is handed in already computed by Cashbox::day(). Nothing is
-    added up here: the screen, the closing record and this paper have to
-    agree, and a template that does its own arithmetic is a fourth opinion.
+    Every figure is handed in already computed — Cashbox::day() for the
+    drawer, Cashbox::itemsSold() for the night's trade,
+    Cashbox::ordersCollected() for the bill-by-bill list. Nothing is added up
+    here: the screen, the closing record and this paper have to agree, and a
+    template that does its own arithmetic is a fourth opinion.
 --}}
 <!DOCTYPE html>
 <html>
@@ -35,6 +37,15 @@
             border: 2px solid #000; padding: 4px; margin-bottom: 6px;
         }
         .footer { margin-top: 10px; font-size: 9.5px; color: #6b7280; }
+        /* Two rows per bill — the headline and its reference — so a dotted
+           line under the second is what tells one bill from the next on a
+           list that can run to a hundred of them. */
+        table.orders td.head { padding-bottom: 0; }
+        table.orders td.method { text-align: center; white-space: nowrap; padding-left: 4px; padding-right: 4px; }
+        table.orders td.sub { font-size: 9.5px; color: #4b5563; padding-top: 0; padding-bottom: 3px; border-bottom: 1px dotted #9ca3af; }
+        table.orders td.part { font-size: 9.5px; color: #4b5563; padding-top: 0; padding-bottom: 0; }
+        table.orders td.total-rule { border-top: 1px solid #111827; padding-top: 6px; }
+        .flag { font-weight: bold; color: #111827; }
         /* Same reason as the invoice: the brand face has no ₪, DejaVu does. */
         .currency { font-family: dejavusanscondensed, sans-serif; }
     </style>
@@ -43,6 +54,11 @@
 @php
     $r = $labels['day_report'];
     $money = fn (int $cents) => number_format($cents / 100, 2);
+    // For the order list, where a line can be money handed back. The minus
+    // goes before the symbol, as it does everywhere else on this paper,
+    // rather than number_format's "₪-10.00".
+    $signed = fn (int $cents) => ($cents < 0 ? '−' : '').'<span class="currency">'.e($currencySymbol).'</span>'.$money(abs($cents));
+    $methodName = fn (string $method) => $labels['payment_methods'][$method] ?? $method;
 @endphp
 
 {{-- A report pulled mid-shift is legitimate and common — a manager checking
@@ -168,11 +184,23 @@
      They are on the paper because a manager asks about them, and labelled
      because a figure on a cash report that is not in the balance is exactly
      the kind of thing that gets subtracted by hand. --}}
-@if ($day['staff_deductions_cents'] > 0 || $day['bill_discounts_cents'] > 0)
+@if ($day['card_collected_cents'] != 0 || $day['staff_deductions_cents'] > 0 || $day['bill_discounts_cents'] > 0)
     <div class="divider"></div>
 
     <table class="rows">
         <tr><td class="section" colspan="2">{{ $r['not_in_drawer'] }}</td></tr>
+        {{-- Money the café earned tonight and will be paid days later. It
+             belongs on this paper because the person counting the drawer is
+             also the person asked how the night went, and a takings figure
+             missing every card sale answers that question wrongly. It belongs
+             in *this* section because it is not in the hand they are
+             counting. --}}
+        @if ($day['card_collected_cents'] != 0)
+            <tr>
+                <td>{{ $r['card_collected'] }}</td>
+                <td class="amount"><span class="currency">{{ $currencySymbol }}</span>{{ $money($day['card_collected_cents']) }}</td>
+            </tr>
+        @endif
         @if ($day['staff_deductions_cents'] > 0)
             <tr>
                 <td>{{ $r['staff_deductions'] }}</td>
@@ -187,6 +215,142 @@
         @endif
     </table>
 @endif
+
+{{-- What actually went out tonight.
+
+     Below the drawer, and deliberately so: the top of this paper is read
+     standing at an open drawer with cash in hand, and that person needs the
+     expected balance before anything else. The list of dishes is the part
+     read afterwards, sitting down — how the night went, and on what — so it
+     goes where a long list can grow without pushing the balance off the
+     first thing you see.
+
+     The figures come from Cashbox::itemsSold(). They describe trade, not the
+     drawer: a card sale is in here, and the totals below are what the bills
+     came to rather than what was counted. --}}
+<div class="divider"></div>
+
+<table class="rows">
+    <tr><td class="section" colspan="2">{{ $r['items_sold'] }}</td></tr>
+
+    @forelse ($items['lines'] as $line)
+        <tr>
+            <td>{{ $line['quantity'] }}× {{ $line['name'] }}</td>
+            <td class="amount"><span class="currency">{{ $currencySymbol }}</span>{{ $money($line['total_cents']) }}</td>
+        </tr>
+    @empty
+        <tr><td colspan="2" class="muted">{{ $r['items_none'] }}</td></tr>
+    @endforelse
+</table>
+
+@if ($items['lines'] !== [])
+    <div class="rule"></div>
+
+    <table class="rows">
+        <tr>
+            <td>{{ $r['bills_count'] }}</td>
+            <td class="amount">{{ $day['orders_count'] }}</td>
+        </tr>
+        <tr>
+            <td>{{ $r['items_quantity'] }}</td>
+            <td class="amount">{{ $items['quantity'] }}</td>
+        </tr>
+        <tr>
+            <td>{{ $r['gross_sales'] }}</td>
+            <td class="amount"><span class="currency">{{ $currencySymbol }}</span>{{ $money($items['gross_cents']) }}</td>
+        </tr>
+        {{-- The same number the "not in drawer" block names, in its other
+             role. Up there it answers "why is the till not holding what the
+             bills say"; here it is the step between what was rung up and
+             what the café is owed, and a gross figure with the discount
+             left out of it is the one a manager will subtract by hand. --}}
+        @if ($items['discount_cents'] > 0)
+            <tr>
+                <td>{{ $r['sales_discount'] }}</td>
+                <td class="amount">−<span class="currency">{{ $currencySymbol }}</span>{{ $money($items['discount_cents']) }}</td>
+            </tr>
+        @endif
+        <tr>
+            <td><strong>{{ $r['net_sales'] }}</strong></td>
+            <td class="amount"><strong><span class="currency">{{ $currencySymbol }}</span>{{ $money($items['net_cents']) }}</strong></td>
+        </tr>
+    </table>
+@endif
+
+{{-- Every bill that paid tonight, and how.
+
+     The very end of the roll, because it is the longest thing on it — one
+     entry per bill — and it is the part read last: the drawer is counted,
+     the night is summed up, and this is where somebody goes looking for the
+     one table they want to ask about.
+
+     The totals underneath are the drawer's own figures, not a recount:
+     Cashbox::ordersCollected() reads the same payments as day(), so "cash"
+     here is "cash from orders" at the top and "card" is "card takings". --}}
+<div class="divider"></div>
+
+<table class="rows orders">
+    <tr><td class="section" colspan="3">{{ $r['orders_detail'] }} ({{ count($orders['lines']) }})</td></tr>
+
+    @forelse ($orders['lines'] as $line)
+        <tr>
+            <td class="head">{{ $line['at']->format('H:i') }}@if ($line['table']) · {{ $line['table'] }}@endif</td>
+            <td class="head method">
+                @if ($line['method'])
+                    {{ $methodName($line['method']) }}
+                @elseif ($line['by_method'] !== [])
+                    {{ $r['split_payment'] }}
+                @else
+                    —
+                @endif
+            </td>
+            <td class="head amount">{!! $signed($line['total_cents']) !!}</td>
+        </tr>
+        {{-- Paid more than one way: the headline says "split" and these say
+             how, each under the amount column so the parts can be read
+             against the whole — and against the card terminal's own slip. --}}
+        @if (! $line['method'])
+            @foreach ($line['by_method'] as $method => $cents)
+                <tr>
+                    <td class="part"></td>
+                    <td class="part method">{{ $methodName($method) }}</td>
+                    <td class="part amount">{!! $signed($cents) !!}</td>
+                </tr>
+            @endforeach
+        @endif
+        <tr>
+            <td class="sub" colspan="3">
+                #{{ $line['reference'] }}
+                @foreach ($line['card_references'] as $cardReference)
+                    · {{ $labels['payment_reference'] }} {{ $cardReference }}
+                @endforeach
+                @if ($line['is_refund'])
+                    · <span class="flag">{{ $r['refund'] }}</span>
+                @elseif ($line['is_part_payment'])
+                    · <span class="flag">{{ $r['part_payment'] }}</span>
+                @endif
+            </td>
+        </tr>
+    @empty
+        <tr><td colspan="3" class="muted">{{ $r['orders_none'] }}</td></tr>
+    @endforelse
+
+    {{-- In the same table as the list, not a second one beneath it, so the
+         totals sit in the column the amounts they add up are in. --}}
+    @if ($orders['lines'] !== [])
+        <tr><td class="section total-rule" colspan="3">{{ $r['payment_summary'] }}</td></tr>
+        @foreach ($orders['by_method'] as $method => $cents)
+            <tr>
+                <td colspan="2">{{ $methodName($method) }}</td>
+                <td class="amount">{!! $signed($cents) !!}</td>
+            </tr>
+        @endforeach
+        <tr>
+            <td class="grand" colspan="2">{{ $r['orders_total'] }}</td>
+            <td class="amount grand">{!! $signed($orders['total_cents']) !!}</td>
+        </tr>
+    @endif
+</table>
 
 <div class="divider"></div>
 

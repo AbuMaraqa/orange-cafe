@@ -5,6 +5,7 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import { useOrderStatus } from '@/composables/useOrderStatus';
 import { ACTIVE_STATUSES, nextStatus } from '@/constants/orderStatus';
+import { PAYMENT_CARD, PAYMENT_CASH, PAYMENT_METHODS, PAYMENT_METHOD_ICONS } from '@/constants/paymentMethods';
 import { router, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 
@@ -84,6 +85,27 @@ function formatPrice(cents) {
  * reached for before it existed was marking the table paid, which put
  * money into the day's takings that nobody handed over.
  */
+/**
+ * Whether this person may cancel this order, not just whether the screen
+ * offers cancelling at all.
+ *
+ * Past confirmation the food is in the kitchen, and writing it off belongs
+ * to the till and the owner (config/orders.php). The server refuses it too;
+ * this only keeps the floor from being offered a button that would be
+ * refused.
+ */
+const mayCancel = computed(() => props.canCancel
+    && order.value
+    && !order.value.is_paid
+    && (order.value.status === 'pending' || page.props.auth?.can_cancel_confirmed === true));
+
+// Said rather than silently missing, so a waiter asked to clear a table
+// knows where to send the request instead of hunting for the button.
+const cancelLocked = computed(() => props.canCancel
+    && order.value
+    && !order.value.is_paid
+    && !mayCancel.value);
+
 function confirmCancel() {
     if (!confirm(t('orders.cancel_confirm', { table: props.table.label }))) {
         return;
@@ -463,6 +485,31 @@ const showingPayForm = ref(false);
 const payAmount = ref('');
 
 /**
+ * How the money is arriving, and the terminal's number for it when it is a
+ * card.
+ *
+ * Defaults to cash on every open rather than remembering the last choice.
+ * A till that remembers would have a cashier who took one card payment
+ * settling the next four tables as card without noticing, and the mistake is
+ * invisible until the drawer is counted at the end of the night and found to
+ * be over by four bills.
+ */
+const payMethod = ref(PAYMENT_CASH);
+const payReference = ref('');
+
+const payingByCard = computed(() => payMethod.value === PAYMENT_CARD);
+
+function choosePayMethod(method) {
+    payMethod.value = method;
+
+    // Clearing on the way back to cash, not just hiding the box: a reference
+    // left in a hidden field is one a mis-tap can attach to a cash payment.
+    if (method !== PAYMENT_CARD) {
+        payReference.value = '';
+    }
+}
+
+/**
  * What is still owed — the total less anything already handed over.
  *
  * This, not the total, is what the pay box should open on: a bill that has
@@ -475,6 +522,7 @@ function openPayForm() {
     editing.value = false;
     showingDiscountForm.value = false;
     payAmount.value = (outstandingCents.value / 100).toFixed(2);
+    choosePayMethod(PAYMENT_CASH);
     showingPayForm.value = true;
 }
 
@@ -490,7 +538,18 @@ function pay(partial) {
     const cents = Math.round(Number(payAmount.value) * 100);
     if (!Number.isFinite(cents) || cents < 0) return;
 
-    router.patch(route('orders.pay', order.value.id), { amount_paid_cents: cents, partial }, {
+    // Optional: a blank box is a cafe that does not reconcile against its
+    // terminal, not a mistake worth stopping a cashier over with a customer
+    // in front of them. Null rather than the empty string, so the column
+    // holds either a number somebody can look up or nothing at all.
+    const reference = payReference.value.trim();
+
+    router.patch(route('orders.pay', order.value.id), {
+        amount_paid_cents: cents,
+        partial,
+        payment_method: payMethod.value,
+        payment_reference: payingByCard.value && reference !== '' ? reference : null,
+    }, {
         preserveScroll: true,
         preserveState: true,
         onSuccess: () => { showingPayForm.value = false; },
@@ -856,6 +915,21 @@ const tileClasses = computed(() => {
                     {{ t('admin.accounting.received') }} {{ formatPrice(order.amount_paid_cents) }}
                 </p>
 
+                <!-- How it was settled, on any bill that has taken money.
+                     The question a cashier is asked about a closed table is
+                     almost always this one, and the alternative to answering
+                     it here is opening the receipt. The card reference rides
+                     along because that is what somebody chasing a charge on a
+                     statement has come to the table for. -->
+                <p
+                    v-if="order.payment_method"
+                    class="-mt-1 mb-3 flex items-center justify-end gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+                >
+                    <NavIcon :name="PAYMENT_METHOD_ICONS[order.payment_method]" class="h-3.5 w-3.5" />
+                    <span>{{ t(`staff.payment_methods.${order.payment_method}`) }}</span>
+                    <span v-if="order.payment_reference" class="tabular-nums" dir="ltr">· {{ order.payment_reference }}</span>
+                </p>
+
                 <!-- One press per charge, priced from the list. The line it
                      writes is an ordinary line from that moment on, so a
                      night that calls for half the usual amount is a reprice
@@ -956,6 +1030,60 @@ const tileClasses = computed(() => {
                             {{ payDifferenceCents < 0 ? t('staff.discount') : t('staff.change_due') }}: {{ formatPrice(Math.abs(payDifferenceCents)) }}
                         </span>
                     </div>
+                    <!-- How the money is arriving. Two buttons rather than a
+                         select: this is a two-way choice made with a customer
+                         waiting, and a dropdown costs a tap and a read to
+                         answer a question the buttons answer by being lit. -->
+                    <div class="mt-3">
+                        <span class="text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('staff.payment_method') }}</span>
+                        <div class="mt-1.5 grid grid-cols-2 gap-2">
+                            <button
+                                v-for="method in PAYMENT_METHODS"
+                                :key="method"
+                                type="button"
+                                class="flex h-10 items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition-colors"
+                                :class="payMethod === method
+                                    ? 'border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900'
+                                    : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300 dark:hover:bg-gray-900'"
+                                @click="choosePayMethod(method)"
+                            >
+                                <NavIcon :name="PAYMENT_METHOD_ICONS[method]" class="h-4 w-4" />
+                                {{ t(`staff.payment_methods.${method}`) }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- The terminal's number for the charge. Only for a card,
+                         and optional even there: it is the one thing that ties
+                         a line on the card settlement back to a bill, so it is
+                         worth asking for — but a till that refuses to close a
+                         paid bill without it gets answered with "1" every time,
+                         which looks like a record and is not one. -->
+                    <div v-if="payingByCard" class="mt-3">
+                        <label class="flex items-baseline gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                            {{ t('staff.payment_reference') }}
+                            <span class="font-normal text-gray-400 dark:text-gray-500">{{ t('staff.payment_reference_optional') }}</span>
+                        </label>
+                        <input
+                            v-model="payReference"
+                            type="text"
+                            dir="ltr"
+                            inputmode="numeric"
+                            autocomplete="off"
+                            maxlength="60"
+                            :placeholder="t('staff.payment_reference_placeholder')"
+                            class="mt-1.5 h-10 w-full rounded-lg border-gray-300 text-sm tabular-nums shadow-sm focus:border-gray-500 focus:ring-gray-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200"
+                            @keyup.enter="confirmPay"
+                        />
+                    </div>
+
+                    <!-- The drawer stays shut for a card, and the cashier
+                         should know that before they press, not after they
+                         have stood waiting for it. -->
+                    <p v-if="payingByCard" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('staff.card_not_in_drawer') }}
+                    </p>
+
                     <!-- What is already in, when this is not the first
                          payment on this bill. -->
                     <p v-if="order.is_partially_paid" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
@@ -1053,9 +1181,11 @@ const tileClasses = computed(() => {
                         </button>
                         <!-- Destructive, and coloured like it. Hidden once
                              the bill is paid: at that point the correction
-                             is a refund, not a cancellation. -->
+                             is a refund, not a cancellation. On the floor it
+                             also goes once the order is confirmed — see
+                             mayCancel. -->
                         <button
-                            v-if="canCancel && !order.is_paid"
+                            v-if="mayCancel"
                             type="button"
                             :class="CHIP"
                             class="!border-red-200 !text-red-600 hover:!bg-red-50 dark:!border-red-900 dark:!text-red-400 dark:hover:!bg-red-950"
@@ -1063,6 +1193,12 @@ const tileClasses = computed(() => {
                         >
                             <NavIcon name="trash" class="h-4 w-4" />{{ t('orders.cancel_order') }}
                         </button>
+                        <span
+                            v-else-if="cancelLocked"
+                            class="inline-flex items-center gap-1.5 px-1 py-2 text-xs text-gray-500 dark:text-gray-400"
+                        >
+                            🔒 {{ t('orders.cancel_locked') }}
+                        </span>
                         <button
                             v-if="editable"
                             type="button"

@@ -127,6 +127,17 @@ class DayReportPrinter
     public function render(string $date, ?User $by = null): string
     {
         $day = $this->cashbox->day($date);
+
+        // Asked for separately rather than folded into day(): that array is the
+        // drawer equation, and every screen and every close recomputes it.
+        // What was sold is a different question, wanted on paper and nowhere
+        // else, and it costs a scan of the night's bill lines to answer.
+        $items = $this->cashbox->itemsSold($date);
+
+        // Same reasoning: the bill-by-bill list is a long scan of the night's
+        // payments that only the paper asks for.
+        $orders = $this->cashbox->ordersCollected($date);
+
         $direction = $this->languages->direction(app()->getLocale());
 
         // By filesystem path: mPDF embeds a local file far more reliably than
@@ -138,6 +149,8 @@ class DayReportPrinter
 
         return $this->renderer->render('pdf.day-report-thermal', [
             'day' => $day,
+            'items' => $items,
+            'orders' => $orders,
             'closing' => $day['closing'],
             'branding' => $this->branding,
             'logoPath' => $logoPath,

@@ -286,7 +286,7 @@
                 <p class="muted" style="margin-bottom:10px;">
                     سجّل الدخول بهذه البيانات من المتصفح، ثم غيّر كلمة المرور فوراً.
                 </p>
-                <div class="cred"><span>البريد</span><code>{{ $firstRun['email'] }}</code></div>
+                <div class="cred"><span>اسم المستخدم</span><code>{{ $firstRun['username'] }}</code></div>
                 <div class="cred"><span>كلمة المرور</span><code>{{ $firstRun['password'] }}</code></div>
                 <button type="button" class="btn-primary" id="dismissCredsBtn">حفظتها — أخفِ هذه البطاقة</button>
                 <div class="msg" id="credsMsg"></div>

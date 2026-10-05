@@ -128,6 +128,35 @@
                 </span>
             </td>
         </tr>
+        @php
+            // See invoice-thermal: read off the timeline, because a bill
+            // split between cash and a card has two answers and the column
+            // on the order keeps only the last.
+            $collectedByMethod = $order->collectedByMethod();
+        @endphp
+        @if ($collectedByMethod !== [])
+            <tr>
+                <td class="label">{{ $labels['payment_method'] }}</td>
+                <td class="text-end">
+                    @if (count($collectedByMethod) === 1)
+                        {{ $labels['payment_methods'][array_key_first($collectedByMethod)] ?? array_key_first($collectedByMethod) }}
+                    @else
+                        {{-- A4 has the width for the split on one line, which
+                             the receipt roll does not. --}}
+                        @foreach ($collectedByMethod as $method => $cents)
+                            {{ $labels['payment_methods'][$method] ?? $method }}
+                            <span class="currency">{{ $currencySymbol }}</span>{{ number_format($cents / 100, 2) }}@if (! $loop->last) &nbsp;·&nbsp; @endif
+                        @endforeach
+                    @endif
+                </td>
+            </tr>
+            @foreach ($order->cardReferences() as $cardReference)
+                <tr>
+                    <td class="label">{{ $labels['payment_reference'] }}</td>
+                    <td class="text-end">{{ $cardReference }}</td>
+                </tr>
+            @endforeach
+        @endif
         @if ($order->isPaid() && $order->amount_paid_cents !== null && $order->amount_paid_cents !== $order->total_cents)
             <tr>
                 <td class="label">{{ $labels['amount_paid'] }}</td>

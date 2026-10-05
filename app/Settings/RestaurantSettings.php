@@ -62,6 +62,16 @@ class RestaurantSettings extends Settings
      */
     public string $business_day_starts_at;
 
+    /**
+     * What the drawer holds at the start of every trading day, in cents.
+     *
+     * The owner closes the till at night, takes everything above this, and
+     * leaves it behind as change for the morning — so the cash box opens on
+     * it by itself instead of on last night's count. See
+     * App\Services\Accounting\Cashbox::openingCents().
+     */
+    public int $cashbox_float_cents;
+
     public static function group(): string
     {
         return 'restaurant';

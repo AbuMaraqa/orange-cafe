@@ -56,6 +56,10 @@ class UpgradeKeepsReferenceDataInStepTest extends TestCase
      *
      * Taking payment is untouched by any of this: it is guarded by role on
      * orders/{order}/pay, not by a permission in this list.
+     *
+     * The one permission the till does hold is the catalog, which touches no
+     * money. Asserted as the whole list rather than as "no money ones", so a
+     * money permission granted by mistake still fails here.
      */
     public function test_the_cashier_is_given_no_money_permissions(): void
     {
@@ -64,9 +68,9 @@ class UpgradeKeepsReferenceDataInStepTest extends TestCase
         $cashier = Role::findByName('cashier', 'web');
 
         $this->assertSame(
-            [],
+            ['catalog.manage'],
             $cashier->permissions->pluck('name')->all(),
-            'The accounting side of the business is the owner\'s.',
+            'The accounting side of the business is the owner\'s; the till gets the catalog and nothing else.',
         );
     }
 

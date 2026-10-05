@@ -6,6 +6,7 @@ use App\Events\OrderStatusUpdated;
 use App\Http\Controllers\Concerns\BroadcastsSafely;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderPayment;
 use App\Models\PrintJob;
 use App\Models\RestaurantTable;
 use App\Models\ServiceCharge;
@@ -52,10 +53,41 @@ class StaffOrderController extends Controller
             // A deliberate part-payment: take this much now and leave the
             // bill open for the rest.
             'partial' => ['sometimes', 'boolean'],
+
+            // How it arrived. Defaulted rather than required so that every
+            // caller predating the card reader — and every test — keeps
+            // meaning what it always meant, which is cash.
+            'payment_method' => ['sometimes', Rule::in(OrderPayment::methods())],
+
+            // Only ever kept for a card, and never demanded.
+            //
+            // It was required at first, on the argument that a charge with no
+            // reference cannot be matched against the terminal's settlement at
+            // the end of the night. The argument is sound and the rule was
+            // still wrong: the cashier is standing in front of a customer, and
+            // a till that refuses to close a paid bill until somebody has
+            // copied a number off a second screen is a till that gets worked
+            // around — the same number typed as "1" every time, which is worse
+            // than an empty column because it looks like a record.
+            //
+            // So the field is offered and left to judgement. A café that
+            // reconciles against its terminal fills it in; one that does not
+            // is not stopped from taking money.
+            'payment_reference' => ['nullable', 'string', 'max:60'],
         ]);
 
         $handedOver = $data['amount_paid_cents'] ?? $order->total_cents;
         $partial = (bool) ($data['partial'] ?? false);
+        $method = $data['payment_method'] ?? OrderPayment::METHOD_CASH;
+        $byCard = $method === OrderPayment::METHOD_CARD;
+
+        // A reference belongs to the charge it describes, so it is dropped
+        // rather than stored when the money came in as cash — a number left
+        // on a cash handover would claim a card transaction twice, and
+        // somebody tracing a line on a statement would find two bills saying
+        // it was theirs. Blank means blank: the field is optional now, and an
+        // empty string in the column is a reference nobody can look up.
+        $reference = $byCard ? ($data['payment_reference'] ?? null) : null;
 
         $previouslyPaid = $order->paidSoFarCents();
 
@@ -86,11 +118,22 @@ class StaffOrderController extends Controller
             'paid_at' => $settled ? now() : null,
             'paid_by' => $settled ? $request->user()->id : null,
             'amount_paid_cents' => $paidSoFar,
+            // Written before the observer reads them off this same save. A
+            // bill part-paid in cash and settled on a card ends up naming the
+            // card, which is what the last handover was; the two rows on the
+            // timeline keep one method each.
+            'payment_method' => $method,
+            'payment_reference' => $reference,
         ]);
 
         // Only for money actually being put in it. A part-payment is still
-        // cash crossing the counter, so the drawer opens either way.
-        $cashierPrinter->queueDrawerOpen();
+        // cash crossing the counter, so the drawer opens either way — but a
+        // card payment puts nothing in the drawer, and popping it anyway
+        // teaches a cashier to ignore an open till at the one moment there is
+        // no reason for it to be open.
+        if (! $byCard) {
+            $cashierPrinter->queueDrawerOpen();
+        }
 
         $this->safeBroadcast(new OrderStatusUpdated($order->fresh()), toOthers: true);
 
@@ -454,6 +497,14 @@ class StaffOrderController extends Controller
             return back()->with('warning', __('orders.already_cancelled'));
         }
 
+        // Past confirmation the food is in the kitchen, and only the till or
+        // the owner may write it off — see config/orders.php. Checked here as
+        // well as hidden on the waiter's screen, because a hidden button is
+        // what the screen shows, not what the server permits.
+        if ($order->status !== 'pending' && ! $request->user()?->hasAnyRole(config('orders.cancel_confirmed_roles'))) {
+            return back()->withErrors(['order' => __('orders.cannot_cancel_confirmed')]);
+        }
+
         // Recorded before the status changes, because it is the reason the
         // message below is worded the way it is: the kitchen may already be
         // cooking this, and the app cannot un-print a ticket.
@@ -601,7 +652,9 @@ class StaffOrderController extends Controller
 
     public function invoice(Order $order, PdfService $pdf, RestaurantSettings $branding): Response
     {
-        $order->load('items.modifiers', 'table');
+        // 'payments' because the receipt now prints how the money arrived,
+        // and that is a per-handover fact — see Order::collectedByMethod().
+        $order->load('items.modifiers', 'table', 'payments');
         $direction = app(LanguageRegistry::class)->direction(app()->getLocale());
 
         // Sized for an 80mm thermal receipt printer (the restaurant's actual

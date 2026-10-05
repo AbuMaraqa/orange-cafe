@@ -156,7 +156,7 @@ const selectClass = 'focus-brand block w-full rounded-md border-gray-300 py-1.5 
                         <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
                             {{ expense.category_name }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{{ expense.reason }}</td>
+                        <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{{ expense.reason || '—' }}</td>
                         <td class="whitespace-nowrap px-4 py-3 text-sm">
                             <Link v-if="expense.user_id" :href="route('admin.accounting.staff.show', expense.user_id)"
                                   class="font-medium" style="color: var(--brand-primary)">{{ expense.user_name }}</Link>

@@ -14,7 +14,7 @@ defineProps({
 const { t } = useI18n();
 
 function destroy(user) {
-    if (confirm(`${user.name}: ` + t('common.are_you_sure'))) {
+    if (confirm(`${user.name}: ` + t('admin.users.delete_keeps_history'))) {
         router.delete(route('admin.users.destroy', user.id), { preserveScroll: true });
     }
 }
@@ -44,7 +44,7 @@ const roleClasses = {
                 <thead class="bg-gray-50 dark:bg-gray-900/60">
                     <tr class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                         <th class="px-4 py-3 text-start">{{ $t('common.name') }}</th>
-                        <th class="px-4 py-3 text-start">{{ $t('auth.email') }}</th>
+                        <th class="px-4 py-3 text-start">{{ $t('auth.username') }}</th>
                         <th class="px-4 py-3 text-start">{{ $t('admin.users.role') }}</th>
                         <th class="px-4 py-3 text-end">{{ $t('common.actions') }}</th>
                     </tr>
@@ -52,7 +52,7 @@ const roleClasses = {
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
                     <tr v-for="user in users" :key="user.id">
                         <td class="whitespace-nowrap px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{{ user.name }}</td>
-                        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-400" dir="ltr">{{ user.email }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600 dark:text-gray-400" dir="auto">{{ user.username }}</td>
                         <td class="whitespace-nowrap px-4 py-3">
                             <span
                                 v-if="user.role"

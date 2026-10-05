@@ -70,6 +70,9 @@ trait PresentsTables
                 'paid_so_far_cents' => $activeOrder->paidSoFarCents(),
                 'outstanding_cents' => $activeOrder->outstandingCents(),
                 'is_partially_paid' => $activeOrder->isPartiallyPaid(),
+                // See PresentsOrders: how it was settled, for the bill sheet.
+                'payment_method' => $activeOrder->payment_method,
+                'payment_reference' => $activeOrder->payment_reference,
                 'notes' => $activeOrder->notes,
                 'items_count' => $activeOrder->items->sum('quantity'),
                 'items' => $activeOrder->items->map(fn ($item) => [

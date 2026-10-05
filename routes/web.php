@@ -27,6 +27,7 @@ use App\Http\Controllers\Admin\TagController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\CustomerMenuController;
+use App\Http\Controllers\CustomerOrderItemController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\KitchenController;
@@ -212,41 +213,9 @@ Route::group([
         Route::patch('languages/{language}/make-default', [LanguageController::class, 'makeDefault'])->name('languages.default');
         Route::patch('languages-reorder', [LanguageController::class, 'reorder'])->name('languages.reorder');
 
-        Route::resource('menus', MenuController::class)->except(['show']);
-        Route::patch('menus-reorder', [MenuController::class, 'reorder'])->name('menus.reorder');
-        Route::get('menus/{menu}/builder', [MenuBuilderController::class, 'edit'])->name('menus.builder');
-        Route::post('menus/{menu}/sections', [MenuBuilderController::class, 'storeSection'])->name('menus.sections.store');
-        Route::patch('menus/{menu}/sections-reorder', [MenuBuilderController::class, 'reorderSections'])->name('menus.sections.reorder');
-        Route::patch('menus/sections/{section}', [MenuBuilderController::class, 'updateSection'])->name('menus.sections.update');
-        Route::delete('menus/sections/{section}', [MenuBuilderController::class, 'destroySection'])->name('menus.sections.destroy');
-        Route::post('menus/sections/{section}/items', [MenuBuilderController::class, 'storeItems'])->name('menus.items.store');
-        Route::patch('menus/sections/{section}/items-reorder', [MenuBuilderController::class, 'reorderItems'])->name('menus.items.reorder');
-        Route::patch('menus/items/{item}', [MenuBuilderController::class, 'updateItem'])->name('menus.items.update');
-        Route::delete('menus/items/{item}', [MenuBuilderController::class, 'destroyItem'])->name('menus.items.destroy');
+        // The catalog lives in its own group below, guarded by permission so
+        // the till can be given it.
 
-        Route::resource('categories', CategoryController::class)->except(['show']);
-        // Hyphenated rather than categories/reorder: the resource route above
-        // owns categories/{category}, and "reorder" would be swallowed by it.
-        Route::patch('categories-reorder', [CategoryController::class, 'reorder'])->name('categories.reorder');
-        Route::resource('products', ProductController::class)->except(['show']);
-        Route::patch('products/{product}/toggle-active', [ProductController::class, 'toggleActive'])->name('products.toggle-active');
-        Route::patch('products-reorder', [ProductController::class, 'reorder'])->name('products.reorder');
-
-        // The catalog as a PDF, for a customer who is not at a table — the
-        // one who rings up and asks what there is. Hyphenated for the same
-        // reason categories-reorder is: Route::resource('menus') above owns
-        // menus/{menu}, and this would be read as a menu called "pdf".
-        Route::get('menu-pdf', MenuPdfController::class)->name('menu.pdf');
-        Route::resource('modifier-groups', ModifierGroupController::class)->except(['show']);
-        Route::patch('modifier-groups-reorder', [ModifierGroupController::class, 'reorder'])->name('modifier-groups.reorder');
-        Route::get('modifier-groups/{modifierGroup}/products', [ModifierGroupController::class, 'products'])->name('modifier-groups.products');
-        Route::put('modifier-groups/{modifierGroup}/products', [ModifierGroupController::class, 'syncProducts'])->name('modifier-groups.products.sync');
-        Route::resource('tags', TagController::class)->except(['show']);
-        Route::resource('services', ServiceController::class)->except(['show']);
-        // Money on a bill with nothing to cook behind it — a table held
-        // past two hours, corkage. Nothing to do with 'services' above,
-        // which is the customer's call bell.
-        Route::resource('service-charges', ServiceChargeController::class)->except(['show']);
         // Declared before the resource: `printers/discover` would otherwise
         // be swallowed by `printers/{printer}` and arrive as a lookup for a
         // printer named "discover".
@@ -282,6 +251,62 @@ Route::group([
         Route::get('feedback', [AdminFeedbackController::class, 'index'])->name('feedback.index');
         Route::patch('feedback/{feedback}/read', [AdminFeedbackController::class, 'markRead'])->name('feedback.read');
         Route::delete('feedback/{feedback}', [AdminFeedbackController::class, 'destroy'])->name('feedback.destroy');
+    });
+
+    /*
+     * The catalog: menus, sections, products, add-ons, tags, the call bell's
+     * services and the service-charge price list.
+     *
+     * Guarded by permission, like the money screens below, so it can be
+     * handed to the till without the rest of the admin area — the cashier is
+     * the one who hears first that a dish is finished or a price has moved.
+     * Outside the role:admin group for the same reason the money group is:
+     * a cashier would be turned away at that group's door before their
+     * permissions were ever consulted.
+     *
+     * The admin role is let in by name as well as by permission, so the
+     * owner is never locked out of their own menu on an install whose
+     * permissions have not been re-synced yet (see bootstrap/app.php).
+     *
+     * Same URLs and route names as before, so every link, redirect and test
+     * that points at them still does.
+     */
+    Route::middleware(['auth', 'role_or_permission:admin|catalog.manage'])->prefix('admin')->name('admin.')->group(function () {
+        Route::resource('menus', MenuController::class)->except(['show']);
+        Route::patch('menus-reorder', [MenuController::class, 'reorder'])->name('menus.reorder');
+        Route::get('menus/{menu}/builder', [MenuBuilderController::class, 'edit'])->name('menus.builder');
+        Route::post('menus/{menu}/sections', [MenuBuilderController::class, 'storeSection'])->name('menus.sections.store');
+        Route::patch('menus/{menu}/sections-reorder', [MenuBuilderController::class, 'reorderSections'])->name('menus.sections.reorder');
+        Route::patch('menus/sections/{section}', [MenuBuilderController::class, 'updateSection'])->name('menus.sections.update');
+        Route::delete('menus/sections/{section}', [MenuBuilderController::class, 'destroySection'])->name('menus.sections.destroy');
+        Route::post('menus/sections/{section}/items', [MenuBuilderController::class, 'storeItems'])->name('menus.items.store');
+        Route::patch('menus/sections/{section}/items-reorder', [MenuBuilderController::class, 'reorderItems'])->name('menus.items.reorder');
+        Route::patch('menus/items/{item}', [MenuBuilderController::class, 'updateItem'])->name('menus.items.update');
+        Route::delete('menus/items/{item}', [MenuBuilderController::class, 'destroyItem'])->name('menus.items.destroy');
+
+        Route::resource('categories', CategoryController::class)->except(['show']);
+        // Hyphenated rather than categories/reorder: the resource route above
+        // owns categories/{category}, and "reorder" would be swallowed by it.
+        Route::patch('categories-reorder', [CategoryController::class, 'reorder'])->name('categories.reorder');
+        Route::resource('products', ProductController::class)->except(['show']);
+        Route::patch('products/{product}/toggle-active', [ProductController::class, 'toggleActive'])->name('products.toggle-active');
+        Route::patch('products-reorder', [ProductController::class, 'reorder'])->name('products.reorder');
+
+        // The catalog as a PDF, for a customer who is not at a table — the
+        // one who rings up and asks what there is. Hyphenated for the same
+        // reason categories-reorder is: Route::resource('menus') above owns
+        // menus/{menu}, and this would be read as a menu called "pdf".
+        Route::get('menu-pdf', MenuPdfController::class)->name('menu.pdf');
+        Route::resource('modifier-groups', ModifierGroupController::class)->except(['show']);
+        Route::patch('modifier-groups-reorder', [ModifierGroupController::class, 'reorder'])->name('modifier-groups.reorder');
+        Route::get('modifier-groups/{modifierGroup}/products', [ModifierGroupController::class, 'products'])->name('modifier-groups.products');
+        Route::put('modifier-groups/{modifierGroup}/products', [ModifierGroupController::class, 'syncProducts'])->name('modifier-groups.products.sync');
+        Route::resource('tags', TagController::class)->except(['show']);
+        Route::resource('services', ServiceController::class)->except(['show']);
+        // Money on a bill with nothing to cook behind it — a table held
+        // past two hours, corkage. Nothing to do with 'services' above,
+        // which is the customer's call bell.
+        Route::resource('service-charges', ServiceChargeController::class)->except(['show']);
     });
 
     /*
@@ -361,9 +386,9 @@ Route::group([
 
         Route::middleware('permission:staff_accounts.view')->group(function () {
             Route::get('staff', [StaffAccountController::class, 'index'])->name('staff.index');
-            Route::get('staff/{user}', [StaffAccountController::class, 'show'])->name('staff.show');
-            Route::post('staff/{user}/entries', [StaffAccountController::class, 'store'])->name('staff.entries.store');
-            Route::delete('staff/{user}/entries/{entry}', [StaffAccountController::class, 'destroy'])->name('staff.entries.destroy');
+            Route::get('staff/{user}', [StaffAccountController::class, 'show'])->name('staff.show')->withTrashed();
+            Route::post('staff/{user}/entries', [StaffAccountController::class, 'store'])->name('staff.entries.store')->withTrashed();
+            Route::delete('staff/{user}/entries/{entry}', [StaffAccountController::class, 'destroy'])->name('staff.entries.destroy')->withTrashed();
         });
 
         Route::middleware('permission:reports.view')->group(function () {
@@ -464,6 +489,11 @@ Route::group([
     Route::get('/menu', [CustomerMenuController::class, 'index'])->name('menu.index');
     Route::post('/menu/orders', [OrderController::class, 'store'])->name('menu.orders.store');
     Route::get('/menu/orders/{order}', [OrderController::class, 'show'])->name('menu.orders.show');
+    // A guest's own lines, until a waiter confirms the order. Who may touch
+    // which line is decided in the controller from the session, not here —
+    // nobody at the QR menu is logged in.
+    Route::patch('/menu/orders/{order}/items/{item}', [CustomerOrderItemController::class, 'update'])->name('menu.orders.items.update');
+    Route::delete('/menu/orders/{order}/items/{item}', [CustomerOrderItemController::class, 'destroy'])->name('menu.orders.items.destroy');
     Route::post('/waiter-calls', [WaiterCallController::class, 'store'])->name('waiter-calls.store');
     Route::get('/call/{table}/{service}', [WaiterCallController::class, 'quick'])->name('waiter-calls.quick');
     Route::post('/feedback', [FeedbackController::class, 'store'])->name('feedback.store');

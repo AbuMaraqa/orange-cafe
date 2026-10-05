@@ -5,10 +5,16 @@ namespace App\Http\Requests;
 use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class ProfileUpdateRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge(['username' => Str::squish((string) $this->input('username'))]);
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *
@@ -18,11 +24,9 @@ class ProfileUpdateRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => [
+            'username' => [
                 'required',
                 'string',
-                'lowercase',
-                'email',
                 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
             ],

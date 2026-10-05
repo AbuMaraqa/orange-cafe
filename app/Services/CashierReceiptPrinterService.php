@@ -122,7 +122,9 @@ class CashierReceiptPrinterService
 
     public function printToPrinter(Order $order, Printer $printer, ?string $notice = null): bool
     {
-        $order->loadMissing('items.modifiers', 'table');
+        // 'payments' for the payment-method lines on the receipt — see
+        // Order::collectedByMethod() and pdf.invoice-thermal.
+        $order->loadMissing('items.modifiers', 'table', 'payments');
 
         return $this->transport->send($printer, $this->buildReceipt($order, $notice), $order->created_at);
     }

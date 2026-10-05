@@ -25,7 +25,7 @@ class UserController extends Controller
                 ->map(fn (User $user) => [
                     'id' => $user->id,
                     'name' => $user->name,
-                    'email' => $user->email,
+                    'username' => $user->username,
                     'role' => $user->roles->first()?->name,
                 ]),
         ]);
@@ -45,7 +45,7 @@ class UserController extends Controller
 
         $user = User::create([
             'name' => $data['name'],
-            'email' => $data['email'],
+            'username' => $data['username'],
             'password' => Hash::make($data['password']),
         ]);
 
@@ -60,7 +60,7 @@ class UserController extends Controller
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
-                'email' => $user->email,
+                'username' => $user->username,
                 'role' => $user->roles->first()?->name,
             ],
             'roles' => array_keys(config('roles.available')),
@@ -77,7 +77,7 @@ class UserController extends Controller
 
         $user->update([
             'name' => $data['name'],
-            'email' => $data['email'],
+            'username' => $data['username'],
             ...($data['password'] ? ['password' => Hash::make($data['password'])] : []),
         ]);
 

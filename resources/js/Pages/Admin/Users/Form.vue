@@ -26,7 +26,7 @@ const isEdit = computed(() => props.user !== null);
 
 const form = useForm({
     name: props.user?.name ?? '',
-    email: props.user?.email ?? '',
+    username: props.user?.username ?? '',
     password: '',
     role: props.user?.role ?? props.roles[0],
 });
@@ -55,9 +55,10 @@ function submit() {
                 </div>
 
                 <div>
-                    <InputLabel for="email" :value="$t('auth.email')" />
-                    <TextInput id="email" v-model="form.email" type="email" class="mt-1 block w-full" dir="ltr" required />
-                    <InputError class="mt-2" :message="form.errors.email" />
+                    <InputLabel for="username" :value="$t('auth.username')" />
+                    <TextInput id="username" v-model="form.username" class="mt-1 block w-full" required autocomplete="off" autocapitalize="none" spellcheck="false" />
+                    <p class="mt-1 text-xs text-gray-500">{{ $t('admin.users.username_hint') }}</p>
+                    <InputError class="mt-2" :message="form.errors.username" />
                 </div>
 
                 <div>

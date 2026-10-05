@@ -5,13 +5,15 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasFactory, HasRoles, Notifiable;
+    use HasFactory, HasRoles, Notifiable, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -20,10 +22,41 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'username',
         'email',
         'password',
         'locale',
     ];
+
+    /**
+     * Deleting someone soft-deletes them. Their orders, payments, ledger
+     * lines and absences all point at this row; a hard delete would cascade
+     * through the ledger and blank "who did this" on everything else. The
+     * row stays — every relation that names a person reads it withTrashed()
+     * — while login, staff pickers and the users list no longer see them.
+     *
+     * The one thing they give up is the username, so the same name can be
+     * handed to whoever replaces them.
+     */
+    protected static function booted(): void
+    {
+        static::softDeleted(function (User $user) {
+            $user->forceFill(['username' => null])->saveQuietly();
+        });
+    }
+
+    /**
+     * Rows copied in from an older schema — the MySQL import, the bundled
+     * legacy export — predate usernames. Until an admin picks one, the
+     * email they used to log in with serves.
+     */
+    public static function fillMissingUsernamesFromEmail(): void
+    {
+        static::query()
+            ->whereNull('username')
+            ->whereNotNull('email')
+            ->update(['username' => DB::raw('email')]);
+    }
 
     /**
      * The route name of this user's home interface, based on their first role.

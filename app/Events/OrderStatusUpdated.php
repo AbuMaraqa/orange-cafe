@@ -47,6 +47,12 @@ class OrderStatusUpdated implements ShouldBroadcastNow
                 'paid_so_far_cents' => $this->order->paidSoFarCents(),
                 'outstanding_cents' => $this->order->outstandingCents(),
                 'is_partially_paid' => $this->order->isPartiallyPaid(),
+                // Travels with the rest of the payment state for the same
+                // reason: a cashier watching the table on another screen sees
+                // it settle, and a bill that says "paid" without saying how
+                // is the one thing they would go and ask about.
+                'payment_method' => $this->order->payment_method,
+                'payment_reference' => $this->order->payment_reference,
                 'total_cents' => $this->order->total_cents,
                 'discount_cents' => $this->order->discount_cents ?? 0,
                 'items' => $this->order->items->map(fn ($item) => [

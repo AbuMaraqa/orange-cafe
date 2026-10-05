@@ -2,15 +2,14 @@
 
 namespace Tests\Feature;
 
-use App\Models\CashMovement;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Accounting\Cashbox;
-use App\Services\Accounting\DayCloser;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SetsCashboxFloat;
 use Tests\TestCase;
 
 /**
@@ -18,15 +17,16 @@ use Tests\TestCase;
  * moves" — checked at the places CashboxArithmeticTest does not reach.
  *
  * That file proves the arithmetic of one ordinary day, thoroughly. What had
- * nothing behind it was the machinery that carries one day into the next, and
- * the payment that arrives without settling a bill. Both are where a wrong
- * figure survives longest, because neither is visible on the day it happens:
- * the drawer is counted, it matches, and the error is in a number nobody
- * recomputes.
+ * nothing behind it was the payment that arrives without settling a bill —
+ * where a wrong figure survives longest, because it is not visible on the day
+ * it happens: the drawer is counted, it matches, and the error is in a number
+ * nobody recomputes.
+ *
+ * How one day hands over to the next is CashboxOpensOnTheFloatTest.
  */
 class CashboxFollowsTheCashTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SetsCashboxFloat;
 
     protected function setUp(): void
     {
@@ -35,25 +35,15 @@ class CashboxFollowsTheCashTest extends TestCase
         $this->seed(RoleSeeder::class);
         $this->seed(LanguageSeeder::class);
         $this->seed(PermissionSeeder::class);
+
+        // Against an empty drawer, so a balance below is only the cash that
+        // moved — see SetsCashboxFloat.
+        $this->floatOf(0);
     }
 
     private function cashbox(): Cashbox
     {
         return app(Cashbox::class);
-    }
-
-    private function manager(): User
-    {
-        $user = User::create([
-            'name' => 'مدير',
-            'email' => 'm'.fake()->unique()->numberBetween(1, 99999).'@test.local',
-            'password' => 'password',
-            'locale' => 'ar',
-            'email_verified_at' => now(),
-        ]);
-        $user->assignRole('admin');
-
-        return $user;
     }
 
     private function cashier(): User
@@ -80,187 +70,6 @@ class CashboxFollowsTheCashTest extends TestCase
             'amount_paid_cents' => $cents,
             'paid_at' => $dateTime,
         ]);
-    }
-
-    // ---------------------------------------------------------------
-    // Carrying the drawer from one day to the next
-    // ---------------------------------------------------------------
-
-    public function test_a_day_with_nothing_before_it_opens_empty(): void
-    {
-        $this->assertSame(0, $this->cashbox()->openingCents('2026-03-10'));
-    }
-
-    public function test_tomorrow_opens_on_what_was_counted_not_what_was_expected(): void
-    {
-        // Already asserted in CashboxArithmeticTest; repeated here as the
-        // baseline the two cases below are departures from, so a failure in
-        // them can be read without opening the other file.
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 4800, 'ناقص 2', $this->manager());
-
-        $this->assertSame(4800, $this->cashbox()->openingCents('2026-03-11'));
-    }
-
-    /**
-     * A night nobody signed off is still carried.
-     *
-     * It used not to be: the float came from the last closed day and stopped
-     * there, so a café that forgot to close one night was told the next night
-     * that it had a surplus of exactly the forgotten day's takings — and the
-     * night after that, and every night until somebody closed on a real count
-     * and absorbed it. A whole day's money, reported as a discrepancy in the
-     * till rather than as the missing close it was.
-     */
-    public function test_a_day_nobody_closed_is_still_carried_into_the_next_opening(): void
-    {
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 5000, null, $this->manager());
-
-        // The 11th takes 3000 and is never closed.
-        $this->paidOn('2026-03-11 20:00:00', 3000);
-
-        // The drawer physically holds 8000 on the morning of the 12th, and
-        // now says so.
-        $this->assertSame(8000, $this->cashbox()->openingCents('2026-03-12'));
-        $this->assertSame(8000, $this->cashbox()->day('2026-03-12')['balance_cents']);
-    }
-
-    /**
-     * Several skipped nights compound rather than only the last one counting.
-     */
-    public function test_a_run_of_unclosed_nights_all_carry(): void
-    {
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 5000, null, $this->manager());
-
-        $this->paidOn('2026-03-11 20:00:00', 3000);
-        $this->paidOn('2026-03-12 20:00:00', 2000);
-        $this->paidOn('2026-03-13 20:00:00', 1000);
-
-        $this->assertSame(11000, $this->cashbox()->openingCents('2026-03-14'));
-    }
-
-    /**
-     * What went *out* on a skipped night is carried too — a float that only
-     * ever grew would be worse than one that never moved.
-     */
-    public function test_money_paid_out_on_a_skipped_night_is_carried_as_well(): void
-    {
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 5000, null, $this->manager());
-
-        $this->paidOn('2026-03-11 14:00:00', 3000);
-
-        CashMovement::create([
-            'direction' => CashMovement::OUT,
-            'type' => CashMovement::TYPE_WITHDRAWAL,
-            'amount_cents' => 2500,
-            'occurred_on' => '2026-03-11',
-            'description' => 'إيداع في الخزنة',
-        ]);
-
-        // 5000 counted + 3000 taken − 2500 withdrawn.
-        $this->assertSame(5500, $this->cashbox()->openingCents('2026-03-12'));
-    }
-
-    /**
-     * An install where nobody has ever closed a day.
-     *
-     * The same statement with nothing to subtract: the drawer holds
-     * everything it ever took, less everything it ever paid out. Reporting
-     * zero there — which is what it used to do — told a café running for a
-     * month that its float was empty every single morning.
-     */
-    public function test_with_no_closing_anywhere_the_float_is_the_whole_history(): void
-    {
-        $this->paidOn('2026-03-08 20:00:00', 4000);
-        $this->paidOn('2026-03-09 20:00:00', 2500);
-
-        $this->assertSame(6500, $this->cashbox()->openingCents('2026-03-10'));
-    }
-
-    /**
-     * Closing the skipped night takes over from the carry rather than adding
-     * to it — the count is the whole answer for every day before it.
-     */
-    public function test_closing_the_skipped_night_replaces_the_carry(): void
-    {
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 5000, null, $this->manager());
-
-        $this->paidOn('2026-03-11 20:00:00', 3000);
-        $this->assertSame(8000, $this->cashbox()->openingCents('2026-03-12'));
-
-        // Counted 200 short on the night that had been skipped.
-        app(DayCloser::class)->close('2026-03-11', 7800, 'عُدّ متأخراً', $this->manager());
-
-        $this->assertSame(7800, $this->cashbox()->openingCents('2026-03-12'), 'not 7800 + 3000');
-    }
-
-    /**
-     * Reopening the 10th puts the 11th back on the running total.
-     *
-     * openingCents() only trusts a closing that is currently signed off, and
-     * a reopened one is not — so the float falls back to what actually moved
-     * through the drawer, exactly as it does for a night nobody closed at
-     * all. The counted figure stops applying because nobody is currently
-     * standing behind it.
-     *
-     * The two figures are deliberately different here: the night was counted
-     * 200 short, so 4800 can only come from the closing and 5000 can only
-     * come from the carry. Closing on a matching count would prove nothing
-     * about which one is being read.
-     *
-     * This used to answer zero — reopening a night to correct it silently
-     * emptied the float of every day after it.
-     */
-    public function test_reopening_a_night_puts_the_next_day_back_on_the_running_total(): void
-    {
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 4800, 'ناقص 2', $this->manager());
-
-        $this->assertSame(4800, $this->cashbox()->openingCents('2026-03-11'), 'the counted figure, while it stands');
-
-        app(DayCloser::class)->reopen('2026-03-10', $this->manager());
-
-        $this->assertFalse($this->cashbox()->isClosed('2026-03-10'));
-        $this->assertSame(5000, $this->cashbox()->openingCents('2026-03-11'), 'what actually moved, now nobody stands behind the count');
-    }
-
-    public function test_closing_it_again_restores_the_float(): void
-    {
-        $this->paidOn('2026-03-10 20:00:00', 5000);
-        app(DayCloser::class)->close('2026-03-10', 5000, null, $this->manager());
-        app(DayCloser::class)->reopen('2026-03-10', $this->manager());
-        app(DayCloser::class)->close('2026-03-10', 4900, 'أُعيد العدّ', $this->manager());
-
-        $this->assertTrue($this->cashbox()->isClosed('2026-03-10'));
-        $this->assertSame(4900, $this->cashbox()->openingCents('2026-03-11'));
-    }
-
-    /**
-     * The float comes from the nearest signed-off night, not the first one.
-     */
-    public function test_the_most_recent_close_wins_over_an_older_one(): void
-    {
-        $this->paidOn('2026-03-08 20:00:00', 1000);
-        app(DayCloser::class)->close('2026-03-08', 1000, null, $this->manager());
-
-        $this->paidOn('2026-03-09 20:00:00', 2000);
-        app(DayCloser::class)->close('2026-03-09', 3000, null, $this->manager());
-
-        $this->assertSame(3000, $this->cashbox()->openingCents('2026-03-10'));
-    }
-
-    public function test_a_closing_after_the_day_does_not_become_its_float(): void
-    {
-        // Guards the boundary in openingCents()'s `<` — a night closed
-        // *after* the day being viewed says nothing about how that day began.
-        $this->paidOn('2026-03-12 20:00:00', 9000);
-        app(DayCloser::class)->close('2026-03-12', 9000, null, $this->manager());
-
-        $this->assertSame(0, $this->cashbox()->openingCents('2026-03-11'));
     }
 
     // ---------------------------------------------------------------

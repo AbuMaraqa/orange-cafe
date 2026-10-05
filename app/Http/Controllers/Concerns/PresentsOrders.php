@@ -28,6 +28,15 @@ trait PresentsOrders
             'paid_so_far_cents' => $order->paidSoFarCents(),
             'outstanding_cents' => $order->outstandingCents(),
             'is_partially_paid' => $order->isPartiallyPaid(),
+            // How the bill was settled, for the badge beside "paid". Taken
+            // from the order's own columns rather than from its payment
+            // timeline on purpose: this presenter runs once per order on a
+            // screen that lists a whole day of them, and loading every
+            // bill's handovers to render one word would be a query per row.
+            // The receipt, which has one bill in front of it, reads the
+            // timeline and can therefore show a split.
+            'payment_method' => $order->payment_method,
+            'payment_reference' => $order->payment_reference,
             'notes' => $order->notes,
             'created_at' => $order->created_at->toIso8601String(),
             'items' => $order->items->map(fn ($item) => [

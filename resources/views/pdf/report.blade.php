@@ -175,6 +175,78 @@
 @endif
 
 {{-- ---------------------------------------------------------------- --}}
+@if ($tab === 'products')
+    @php $t = $products['totals']; @endphp
+
+    <table class="cards">
+        <tr>
+            <td><div class="label">{{ $labels['units_sold'] }}</div><div class="value">{{ $t['quantity'] }}</div></td>
+            <td><div class="label">{{ $labels['gross'] }}</div><div class="value in"><span class="currency money">{{ $money($t['gross_cents']) }}</span></div></td>
+            <td><div class="label">{{ $labels['products_sold'] }}</div><div class="value">{{ $t['products_count'] }}</div></td>
+        </tr>
+    </table>
+
+    {{-- Sections first. An owner reading this on paper wants the shape of
+         the trade before the line items — which half of the menu is
+         carrying the other. --}}
+    @if ($products['by_category'])
+        <h2>{{ $labels['by_section'] }}</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>{{ $labels['section'] }}</th>
+                    <th class="num">{{ $labels['units_sold'] }}</th>
+                    <th class="num">{{ $labels['gross'] }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($products['by_category'] as $row)
+                    <tr>
+                        <td>{{ $row['name'] ?? $labels['no_section'] }}</td>
+                        <td class="num">{{ $row['quantity'] }}</td>
+                        <td class="num strong currency money">{{ $money($row['gross_cents']) }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    @endif
+
+    <h2>{{ $labels['best_sellers'] }}</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width:5%" class="num">#</th>
+                <th>{{ $labels['product'] }}</th>
+                <th class="num">{{ $labels['units_sold'] }}</th>
+                <th class="num">{{ $labels['bills'] }}</th>
+                <th class="num">{{ $labels['gross'] }}</th>
+                <th class="num">%</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse ($products['rows'] as $index => $row)
+                <tr>
+                    <td class="num muted">{{ $index + 1 }}</td>
+                    <td>{{ $row['name'] }}</td>
+                    <td class="num strong">{{ $row['quantity'] }}</td>
+                    <td class="num muted">{{ $row['orders_count'] }}</td>
+                    <td class="num currency money">{{ $money($row['gross_cents']) }}</td>
+                    <td class="num muted">{{ $row['share'] }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="6" style="text-align:center;padding:14px" class="muted">{{ $labels['no_movements'] }}</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+
+    {{-- Said on the paper, not only on the screen it was printed from. A
+         sheet headed with sales figures that quietly means something
+         different from the orders sheet beside it is how two reports end up
+         disagreeing in a folder. --}}
+    <p class="muted" style="margin-top:8px">{{ $labels['gross_note'] }}</p>
+@endif
+
+{{-- ---------------------------------------------------------------- --}}
 {{-- Cash box: summary, then the ledger behind it                      --}}
 {{-- ---------------------------------------------------------------- --}}
 @if ($tab === 'cashbox')
@@ -195,11 +267,13 @@
                  thirty-one rows on the page, twenty-eight of them zeros, and
                  the three days that actually had money in them were lost in
                  the middle. A closed day is always shown even if it was
-                 quiet — somebody signed it, and that is worth printing. --}}
+                 quiet — somebody signed it, and that is worth printing.
+                 Judged on what moved, not on the balance: every day opens on
+                 the float, so a balance is never zero and would keep them all. --}}
             @php
                 $active = array_values(array_filter(
                     $cashbox["days"],
-                    fn ($d) => $d["collected_cents"] || $d["expenses_cents"] || $d["balance_cents"] || $d["opening_cents"] || ($d["is_closed"] ?? false)
+                    fn ($d) => $d["collected_cents"] || $d["expenses_cents"] || ($d["is_closed"] ?? false)
                 ));
             @endphp
             @forelse ($active as $day)

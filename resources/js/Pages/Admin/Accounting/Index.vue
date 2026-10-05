@@ -68,6 +68,16 @@ function formatTime(iso) {
             <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
                 <p class="text-xs text-gray-500">{{ t('admin.accounting.collected') }}</p>
                 <p class="mt-1 text-xl font-semibold text-teal-600">{{ formatPrice(summary.collected_cents) }}</p>
+                <!-- How it arrived, under the figure it makes up. Shown only
+                     once a card has actually been taken: a cafe that deals in
+                     nothing but cash gets no line telling it so, and a total
+                     with "cash 400 / card 0" under it every day trains the eye
+                     to skip the line on the day it finally matters. -->
+                <p v-if="summary.card_collected_cents" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('staff.payment_methods.cash') }} {{ formatPrice(summary.cash_collected_cents) }}
+                    <span class="px-1 text-gray-300 dark:text-gray-600">·</span>
+                    {{ t('staff.payment_methods.card') }} {{ formatPrice(summary.card_collected_cents) }}
+                </p>
             </div>
             <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
                 <p class="text-xs text-gray-500">{{ t('admin.accounting.outstanding') }}</p>
@@ -157,6 +167,14 @@ function formatTime(iso) {
                                 :class="order.amount_paid_cents < order.total_cents ? 'text-red-500' : 'text-teal-600'"
                             >
                                 {{ t('admin.accounting.received') }} {{ formatPrice(order.amount_paid_cents) }}
+                            </div>
+                            <!-- A note in the drawer and a charge landing in
+                                 the bank on Thursday are both "collected",
+                                 and on the screen that exists to trace the
+                                 money they must not look the same. -->
+                            <div v-if="order.payment_method" class="text-xs font-normal text-gray-500 dark:text-gray-400">
+                                {{ t(`staff.payment_methods.${order.payment_method}`) }}
+                                <span v-if="order.payment_reference" class="tabular-nums" dir="ltr">· {{ order.payment_reference }}</span>
                             </div>
                         </td>
                     </tr>

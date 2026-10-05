@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue';
+import MoneyInput from '@/Components/Accounting/MoneyInput.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
@@ -34,6 +35,7 @@ const form = useForm({
     wifi_password: props.setting.wifi_password ?? '',
     receipt_footer_text: props.setting.receipt_footer_text ?? '',
     business_day_starts_at: props.setting.business_day_starts_at ?? '00:00',
+    cashbox_float: props.setting.cashbox_float ?? '500.00',
 });
 
 const logoPreview = ref(props.setting.logo_url);
@@ -244,6 +246,19 @@ function submit() {
                     <InputError class="mt-2" :message="form.errors.business_day_starts_at" />
                 </div>
                 <p class="mt-3 text-xs text-gray-400">{{ $t('settings.business_day_hint') }}</p>
+            </section>
+
+            <!-- The change left in the drawer overnight. The cash box opens
+                 on it every morning by itself, so closing is the only thing
+                 the owner does with the till. -->
+            <section class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+                <h3 class="mb-4 font-medium text-gray-900 dark:text-gray-100">{{ $t('settings.cashbox') }}</h3>
+
+                <div class="max-w-xs">
+                    <MoneyInput id="cashbox_float" v-model="form.cashbox_float" :label="$t('settings.cashbox_float')" required />
+                    <InputError class="mt-2" :message="form.errors.cashbox_float_cents" />
+                </div>
+                <p class="mt-3 text-xs text-gray-400">{{ $t('settings.cashbox_float_hint') }}</p>
             </section>
 
             <div class="flex justify-end">

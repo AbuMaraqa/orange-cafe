@@ -68,8 +68,11 @@ function submit() {
 <template>
     <Modal :show="show" max-width="lg" @close="emit('close')">
         <form class="space-y-4 p-6" @submit.prevent="submit">
+            <!-- Said the way the person would say it — "I put money in" —
+                 rather than as a ledger direction. Whoever opens this has
+                 just done something with their hands at the drawer. -->
             <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                {{ $t('accounting.add_movement') }}
+                {{ form.direction === 'in' ? $t('accounting.drawer_put_in') : $t('accounting.drawer_took_out') }}
             </h2>
 
             <div class="grid grid-cols-2 gap-2">
@@ -85,30 +88,41 @@ function submit() {
                         : 'border-gray-200 text-gray-500 dark:border-gray-700'"
                     @click="form.direction = direction"
                 >
-                    {{ direction === 'in' ? '➕ ' + $t('accounting.direction_in') : '➖ ' + $t('accounting.direction_out') }}
+                    {{ direction === 'in' ? '➕ ' + $t('accounting.drawer_kind_in') : '➖ ' + $t('accounting.drawer_kind_out') }}
                 </button>
             </div>
 
-            <div>
-                <InputLabel for="movement-type" :value="$t('accounting.category')" />
-                <select
-                    id="movement-type"
-                    v-model="form.type"
-                    class="focus-brand mt-1 block w-full rounded-md border-gray-300 shadow-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                >
-                    <option v-for="type in typesByDirection[form.direction]" :key="type" :value="type">
-                        {{ $t(`accounting.movement_${type}`) }}
-                    </option>
-                </select>
+            <!-- Two choices per direction, so they are laid out as cards
+                 with an example each rather than hidden in a dropdown whose
+                 options only make sense to somebody who already knows them. -->
+            <fieldset>
+                <legend class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('accounting.drawer_what_kind') }}</legend>
+                <div class="mt-1 grid gap-2 sm:grid-cols-2">
+                    <label
+                        v-for="type in typesByDirection[form.direction]"
+                        :key="type"
+                        class="flex cursor-pointer items-start gap-2 rounded-lg border-2 p-3 transition"
+                        :class="form.type === type
+                            ? 'border-gray-900 bg-gray-50 dark:border-gray-200 dark:bg-gray-800'
+                            : 'border-gray-200 hover:border-gray-300 dark:border-gray-700'"
+                    >
+                        <input v-model="form.type" type="radio" name="movement-type" :value="type" class="mt-0.5" />
+                        <span>
+                            <span class="block text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t(`accounting.drawer_type_${type}`) }}</span>
+                            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $t(`accounting.drawer_type_${type}_hint`) }}</span>
+                        </span>
+                    </label>
+                </div>
                 <InputError class="mt-1" :message="form.errors.type" />
-            </div>
+            </fieldset>
 
             <MoneyInput id="movement-amount" v-model="form.amount" :label="$t('accounting.amount')" required autofocus />
             <InputError class="mt-1" :message="form.errors.amount_cents" />
 
             <div>
-                <InputLabel for="movement-description" :value="$t('accounting.description')" />
-                <TextInput id="movement-description" v-model="form.description" required class="mt-1 block w-full" />
+                <InputLabel for="movement-description" :value="$t('accounting.drawer_reason')" />
+                <TextInput id="movement-description" v-model="form.description" required class="mt-1 block w-full"
+                           :placeholder="$t('accounting.drawer_reason_placeholder')" />
                 <InputError class="mt-1" :message="form.errors.description" />
             </div>
 

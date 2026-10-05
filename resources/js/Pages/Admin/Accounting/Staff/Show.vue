@@ -193,7 +193,7 @@ const balanceLabel = computed(() => {
                     <li v-for="expense in recentExpenses" :key="expense.id" class="flex items-center gap-3 px-4 py-2.5">
                         <span class="w-24 shrink-0 text-xs tabular-nums text-gray-500" dir="ltr">{{ formatDate(expense.spent_on) }}</span>
                         <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
-                            {{ expense.category_name }} · {{ expense.reason }}
+                            {{ expense.category_name }}<template v-if="expense.reason"> · {{ expense.reason }}</template>
                         </span>
                         <span class="shrink-0 text-sm font-semibold tabular-nums text-red-600 dark:text-red-400" dir="ltr">
                             {{ money(expense.amount_cents) }}

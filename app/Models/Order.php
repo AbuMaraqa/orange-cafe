@@ -19,6 +19,11 @@ class Order extends Model
         'table_id', 'guest_count', 'table_number', 'customer_name',
         'status', 'locale', 'notes', 'total_cents', 'discount_cents', 'discount_reason',
         'created_by', 'paid_at', 'paid_by', 'amount_paid_cents',
+        // How the most recent handover arrived, and the card terminal's
+        // number for it. A summary of the payment timeline for the receipt
+        // and the floor plan — `order_payments` holds the real per-handover
+        // record. See the migration that added them.
+        'payment_method', 'payment_reference',
     ];
 
     protected function casts(): array
@@ -107,28 +112,91 @@ class Order extends Model
      *
      * @param  int  $deltaCents  what changed hands now — negative when a bill
      *                           is corrected downwards and money goes back
+     * @param  string|null  $method  cash or card; cash when unstated, because
+     *                               that is what a caller with nothing to say
+     *                               about the method has always meant, and
+     *                               because only cash moves the drawer — see
+     *                               OrderPayment and Cashbox
+     * @param  string|null  $reference  the card terminal's number for this
+     *                                  transaction, so a disputed charge on a
+     *                                  statement leads back to a bill
      */
-    public function recordPayment(int $deltaCents, ?int $userId = null, ?Carbon $at = null): ?OrderPayment
-    {
+    public function recordPayment(
+        int $deltaCents,
+        ?int $userId = null,
+        ?Carbon $at = null,
+        ?string $method = null,
+        ?string $reference = null,
+    ): ?OrderPayment {
         if ($deltaCents === 0) {
             return null;
         }
 
+        $method ??= OrderPayment::METHOD_CASH;
+
         return $this->payments()->create([
             'amount_cents' => $deltaCents,
+            'method' => $method,
+            // Only ever kept for the method it describes. A reference left
+            // over on the bill from an earlier card payment must not be
+            // stamped onto the cash that settles it, or a statement lookup
+            // finds one transaction claimed by two handovers.
+            'reference' => $method === OrderPayment::METHOD_CARD ? $reference : null,
             'received_at' => $at ?? now(),
             'received_by' => $userId,
         ]);
     }
 
+    /**
+     * What this bill has taken in cash, and what it has taken on a card.
+     *
+     * Read off the timeline rather than off `payment_method`, because a bill
+     * settled half in cash and half on a card has one of each and the column
+     * on the order can only name the last. The receipt prints this whenever
+     * the two disagree.
+     *
+     * @return array<string, int> method => cents, in the order paid
+     */
+    public function collectedByMethod(): array
+    {
+        return $this->payments
+            ->groupBy('method')
+            ->map(fn ($group) => (int) $group->sum('amount_cents'))
+            ->filter(fn (int $cents) => $cents !== 0)
+            ->all();
+    }
+
+    /**
+     * The card terminal's numbers for this bill, in the order they were run.
+     *
+     * A list rather than the single `payment_reference` on the order, because
+     * the receipt is the customer's copy of the transaction: a table that ran
+     * a card twice — a declined-then-retried, or a split between two guests —
+     * needs both numbers on the paper, and the column on the bill remembers
+     * only the last. Deduplicated, because retrying the same charge against
+     * an unchanged bill should not print the number twice.
+     *
+     * @return array<int, string>
+     */
+    public function cardReferences(): array
+    {
+        return $this->payments
+            ->where('method', OrderPayment::METHOD_CARD)
+            ->pluck('reference')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public function createdBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by')->withTrashed();
     }
 
     public function paidBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'paid_by');
+        return $this->belongsTo(User::class, 'paid_by')->withTrashed();
     }
 
     /**

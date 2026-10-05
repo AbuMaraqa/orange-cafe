@@ -90,15 +90,55 @@ class CancelTableTest extends TestCase
         $this->assertSame('cancelled', $order->fresh()->status);
     }
 
-    public function test_a_confirmed_table_can_still_be_cancelled(): void
+    /**
+     * Once confirmed, the food is in the kitchen, and a cancelled table is a
+     * bill with nothing recorded against it — the one button that lets cash
+     * taken at a table disappear. Neither the floor nor the till may press
+     * it, and the table stays exactly as it was.
+     */
+    public function test_neither_the_floor_nor_the_till_can_cancel_a_confirmed_table(): void
     {
-        // The customer left after ordering. It still has to be clearable —
-        // the alternative is a table that stays occupied all night.
+        foreach (['waiter', 'cashier'] as $role) {
+            foreach (['confirmed', 'ready'] as $status) {
+                $order = $this->orderOn($this->table("{$role}-{$status}"), status: $status);
+
+                $this->cancel($this->staff($role), $order)->assertSessionHasErrors('order');
+
+                $this->assertSame($status, $order->fresh()->status, "a {$role} leaves a {$status} order alone");
+            }
+        }
+    }
+
+    /**
+     * The customer left after ordering. It still has to be clearable — the
+     * alternative is a table that stays occupied all night — by the owner.
+     */
+    public function test_the_owner_can_cancel_a_confirmed_table(): void
+    {
         $order = $this->orderOn($this->table(), status: 'confirmed');
 
-        $this->cancel($this->staff('waiter'), $order)->assertSessionHasNoErrors();
+        $this->cancel($this->staff('admin'), $order)->assertSessionHasNoErrors();
 
         $this->assertSame('cancelled', $order->fresh()->status);
+    }
+
+    /**
+     * The screen hides the button from whoever the server would refuse, by
+     * asking one shared fact rather than knowing the role list itself.
+     */
+    public function test_the_screen_is_told_who_may_cancel_a_confirmed_table(): void
+    {
+        $this->actingAs($this->staff('waiter'))
+            ->get(route('waiter.index'))
+            ->assertInertia(fn ($page) => $page->where('auth.can_cancel_confirmed', false));
+
+        $this->actingAs($this->staff('cashier'))
+            ->get(route('cashier.index'))
+            ->assertInertia(fn ($page) => $page->where('auth.can_cancel_confirmed', false));
+
+        $this->actingAs($this->staff('admin'))
+            ->get(route('cashier.index'))
+            ->assertInertia(fn ($page) => $page->where('auth.can_cancel_confirmed', true));
     }
 
     public function test_the_table_reads_as_free_afterwards(): void
@@ -156,7 +196,7 @@ class CancelTableTest extends TestCase
             'idempotency_key' => 'kitchen:'.$order->id.':'.$printer->id.':kitchen:1',
         ]);
 
-        $this->cancel($this->staff('waiter'), $order)
+        $this->cancel($this->staff('admin'), $order)
             ->assertSessionHas('warning')
             ->assertSessionMissing('success');
     }

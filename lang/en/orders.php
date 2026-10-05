@@ -28,5 +28,6 @@ return [
     'cancelled_after_printing' => 'Order cancelled — but its ticket already reached the kitchen, so tell them yourself.',
     'cannot_cancel_paid' => 'This order is already paid and cannot be cancelled — a correction after payment is a refund.',
     'already_cancelled' => 'This order is already cancelled.',
+    'cannot_cancel_confirmed' => 'This order is confirmed and has gone to the kitchen — only a manager can cancel it.',
     'cannot_edit_closed' => 'Lines cannot be changed on a closed order — it is completed or cancelled. Use a discount, or cancel the table.',
 ];

@@ -90,6 +90,14 @@ class OrderObserver
             deltaCents: $after - $before,
             userId: $order->paid_by ?? Auth::id(),
             at: $order->paid_at,
+            // Read off the bill for the same reason the cashier and the
+            // moment are: this is the seam every writer passes through, and
+            // the till is only one of them. A seeder or the legacy importer
+            // states the method on the order it creates and gets a timeline
+            // that agrees with it; one that says nothing gets cash, which is
+            // what every payment predating the card reader was.
+            method: $order->payment_method,
+            reference: $order->payment_reference,
         );
     }
 

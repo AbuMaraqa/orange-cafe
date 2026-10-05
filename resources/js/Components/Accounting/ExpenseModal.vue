@@ -122,7 +122,7 @@ function submit() {
 
             <div>
                 <InputLabel for="expense-reason" :value="$t('accounting.reason')" />
-                <TextInput id="expense-reason" v-model="form.reason" required class="mt-1 block w-full" />
+                <TextInput id="expense-reason" v-model="form.reason" class="mt-1 block w-full" />
                 <InputError class="mt-1" :message="form.errors.reason" />
             </div>
 
